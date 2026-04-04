@@ -82,7 +82,7 @@ export default function CustomerDetailPage() {
   const [miles, setMiles] = useState('')
   const [recurrence, setRecurrence] = useState<Recurrence>(null)
   const [notes, setNotes] = useState('')
-  const [isActive, setIsActive] = useState(true)
+  const [customerStatus, setCustomerStatus] = useState<'active' | 'inactive'>('active')
 
   useEffect(() => {
     async function load() {
@@ -118,7 +118,7 @@ export default function CustomerDetailPage() {
     setMiles(c.one_way_miles != null ? String(c.one_way_miles) : '')
     setRecurrence(c.recurrence ?? null)
     setNotes(c.notes ?? '')
-    setIsActive(c.is_active)
+    setCustomerStatus(c.status)
   }
 
   function handleCancelEdit() {
@@ -143,7 +143,7 @@ export default function CustomerDetailPage() {
       one_way_miles: miles ? parseFloat(miles) : null,
       recurrence: recurrence ?? null,
       notes: notes.trim() || null,
-      is_active: isActive,
+      status: customerStatus,
     }
 
     const { error } = await supabase.from('clean_customers').update(updates).eq('id', id)
@@ -330,9 +330,9 @@ export default function CustomerDetailPage() {
                     <button
                       key={s}
                       type="button"
-                      onClick={() => setIsActive(s === 'active')}
+                      onClick={() => setCustomerStatus(s)}
                       className={`h-10 px-4 rounded-full text-sm font-medium border capitalize transition-colors ${
-                        (s === 'active') === isActive
+                        s === customerStatus
                           ? 'bg-[#2C5F8A] border-[#2C5F8A] text-white'
                           : 'border-gray-200 bg-white text-gray-600'
                       }`}

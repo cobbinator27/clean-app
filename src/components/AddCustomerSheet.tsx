@@ -58,7 +58,7 @@ export default function AddCustomerSheet({ householdId, onClose, onCreated }: Pr
         primary_rate: primaryRate ? parseFloat(primaryRate) : null,
         recurrence: recurrence ?? null,
         notes: notes.trim() || null,
-        is_active: true,
+        status: 'active',
       })
       .select()
       .single()

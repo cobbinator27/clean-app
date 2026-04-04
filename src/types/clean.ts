@@ -22,7 +22,7 @@ export interface CleanCustomer {
   secondary_rate: number | null
   one_way_miles: number | null
   recurrence: Recurrence
-  is_active: boolean
+  status: 'active' | 'inactive'
   notes: string | null
 }
 

@@ -126,12 +126,14 @@ export default function CustomersPage() {
     if (!householdId) return
     setLoading(true)
 
-    const { data: cxData } = await supabase
+    console.log('[customers] householdId:', householdId, 'tab:', tab)
+    const { data: cxData, error: cxError } = await supabase
       .from('clean_customers')
       .select('*')
       .eq('household_id', householdId)
-      .eq('is_active', tab === 'active')
+      .eq('status', tab)
       .order('name')
+    console.log('[customers] result:', cxData, cxError)
 
     const cxList = (cxData ?? []) as CleanCustomer[]
 
