@@ -27,6 +27,36 @@ const RECURRENCE_OPTIONS: { value: NonNullable<Recurrence>; label: string }[] = 
   { value: 'monthly',   label: 'Monthly' },
 ]
 
+const DAY_OPTIONS = [
+  { value: 'monday',    label: 'Mon' },
+  { value: 'tuesday',   label: 'Tue' },
+  { value: 'wednesday', label: 'Wed' },
+  { value: 'thursday',  label: 'Thu' },
+  { value: 'friday',    label: 'Fri' },
+  { value: 'saturday',  label: 'Sat' },
+]
+
+const DAY_LABELS: Record<string, string> = {
+  monday: 'Monday', tuesday: 'Tuesday', wednesday: 'Wednesday',
+  thursday: 'Thursday', friday: 'Friday', saturday: 'Saturday', sunday: 'Sunday',
+}
+
+function describeSchedule(customer: CleanCustomer): string {
+  if (!customer.recurrence) return 'No recurring schedule'
+  const day = customer.recurrence_day ? DAY_LABELS[customer.recurrence_day] ?? customer.recurrence_day : null
+  if (customer.recurrence === 'weekly') return day ? `Weekly on ${day}` : 'Weekly'
+  if (customer.recurrence === 'bi_weekly') return day ? `Every other ${day}` : 'Bi-Weekly'
+  if (customer.recurrence === 'monthly') {
+    if (customer.recurrence_start) {
+      const [, , d] = customer.recurrence_start.split('-').map(Number)
+      const suffix = d === 1 ? 'st' : d === 2 ? 'nd' : d === 3 ? 'rd' : 'th'
+      return `Monthly on the ${d}${suffix}`
+    }
+    return 'Monthly'
+  }
+  return 'No recurring schedule'
+}
+
 function formatDateFull(dateStr: string): string {
   const [y, m, d] = dateStr.split('-').map(Number)
   return new Date(y, m - 1, d).toLocaleDateString('en-US', {
@@ -115,6 +145,8 @@ export default function ClientDetailPage() {
   const [secondaryRate, setSecondaryRate] = useState('')
   const [miles, setMiles] = useState('')
   const [recurrence, setRecurrence] = useState<Recurrence>(null)
+  const [recurrenceDay, setRecurrenceDay] = useState<string | null>(null)
+  const [recurrenceStart, setRecurrenceStart] = useState('')
   const [notes, setNotes] = useState('')
   const [customerStatus, setCustomerStatus] = useState<'active' | 'inactive'>('active')
 
@@ -166,6 +198,8 @@ export default function ClientDetailPage() {
     setSecondaryRate(c.secondary_rate != null ? String(c.secondary_rate) : '')
     setMiles(c.one_way_miles != null ? String(c.one_way_miles) : '')
     setRecurrence(c.recurrence ?? null)
+    setRecurrenceDay(c.recurrence_day ?? null)
+    setRecurrenceStart(c.recurrence_start ?? '')
     setNotes(c.notes ?? '')
     setCustomerStatus(c.status)
   }
@@ -190,6 +224,8 @@ export default function ClientDetailPage() {
       secondary_rate: secondaryRate ? parseFloat(secondaryRate) : null,
       one_way_miles: miles ? parseFloat(miles) : null,
       recurrence: recurrence ?? null,
+      recurrence_day: (recurrence === 'weekly' || recurrence === 'bi_weekly') ? (recurrenceDay ?? null) : null,
+      recurrence_start: (recurrence === 'weekly' || recurrence === 'bi_weekly' || recurrence === 'monthly') ? (recurrenceStart || null) : null,
       notes: notes.trim() || null,
       status: customerStatus,
     }
@@ -355,16 +391,69 @@ export default function ClientDetailPage() {
               <Field label="One-Way Miles">
                 <input type="number" min="0" step="0.1" value={miles} onChange={e => setMiles(e.target.value)} className={inputCls} />
               </Field>
-              <Field label="Recurrence">
+              {/* Schedule section */}
+              <div className="pt-2 pb-1">
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Recurring Schedule</p>
+              </div>
+
+              <Field label="Frequency">
                 <div className="flex gap-2 flex-wrap">
+                  {/* None pill */}
+                  <button type="button"
+                    onClick={() => { setRecurrence(null); setRecurrenceDay(null); setRecurrenceStart('') }}
+                    className={`h-10 px-4 rounded-full text-sm font-medium border transition-colors ${recurrence === null ? 'bg-[#2C5F8A] border-[#2C5F8A] text-white' : 'border-gray-200 bg-white text-gray-600'}`}
+                  >None</button>
                   {RECURRENCE_OPTIONS.map(opt => (
                     <button key={opt.value} type="button"
-                      onClick={() => setRecurrence(r => r === opt.value ? null : opt.value)}
+                      onClick={() => setRecurrence(opt.value)}
                       className={`h-10 px-4 rounded-full text-sm font-medium border transition-colors ${recurrence === opt.value ? 'bg-[#2C5F8A] border-[#2C5F8A] text-white' : 'border-gray-200 bg-white text-gray-600'}`}
                     >{opt.label}</button>
                   ))}
                 </div>
               </Field>
+
+              {(recurrence === 'weekly' || recurrence === 'bi_weekly') && (
+                <Field label="Day of Week">
+                  <div className="flex gap-2 flex-wrap">
+                    {DAY_OPTIONS.map(opt => (
+                      <button key={opt.value} type="button"
+                        onClick={() => setRecurrenceDay(d => d === opt.value ? null : opt.value)}
+                        className={`h-10 px-3 rounded-full text-sm font-medium border transition-colors ${recurrenceDay === opt.value ? 'bg-[#2C5F8A] border-[#2C5F8A] text-white' : 'border-gray-200 bg-white text-gray-600'}`}
+                      >{opt.label}</button>
+                    ))}
+                  </div>
+                </Field>
+              )}
+
+              {(recurrence === 'weekly' || recurrence === 'bi_weekly') && (
+                <Field label="Schedule anchor date">
+                  <input
+                    type="date"
+                    value={recurrenceStart}
+                    onChange={e => setRecurrenceStart(e.target.value)}
+                    className={inputCls}
+                  />
+                  <p className="text-xs text-gray-400 mt-1.5 leading-relaxed">
+                    {recurrence === 'bi_weekly'
+                      ? "For bi-weekly clients, this determines which weeks are 'on'. Set it to any past date when they were cleaned."
+                      : "Start date for this client's weekly schedule."}
+                  </p>
+                </Field>
+              )}
+
+              {recurrence === 'monthly' && (
+                <Field label="Monthly clean date">
+                  <input
+                    type="date"
+                    value={recurrenceStart}
+                    onChange={e => setRecurrenceStart(e.target.value)}
+                    className={inputCls}
+                  />
+                  <p className="text-xs text-gray-400 mt-1.5">
+                    Day of month (e.g. set to April 15 for the 15th of each month)
+                  </p>
+                </Field>
+              )}
               <Field label="Notes">
                 <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3} className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-sm text-gray-700 resize-none focus:outline-none focus:ring-2 focus:ring-blue-200" />
               </Field>
@@ -388,7 +477,7 @@ export default function ClientDetailPage() {
                 { label: 'Primary Rate',   value: customer.primary_rate   != null ? `$${customer.primary_rate}/clean`   : null, href: null },
                 { label: 'Secondary Rate', value: customer.secondary_rate != null ? `$${customer.secondary_rate}/clean` : null, href: null },
                 { label: 'One-Way Miles',  value: customer.one_way_miles  != null ? `${customer.one_way_miles} mi`      : null, href: null },
-                { label: 'Recurrence',     value: customer.recurrence ? RECURRENCE_OPTIONS.find(o => o.value === customer.recurrence)?.label : null, href: null },
+                { label: 'Schedule',       value: describeSchedule(customer), href: null },
               ]
                 .filter(row => row.value)
                 .map(row => (

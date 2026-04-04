@@ -10,6 +10,15 @@ const RECURRENCE_OPTIONS: { value: NonNullable<Recurrence>; label: string }[] = 
   { value: 'monthly',   label: 'Monthly' },
 ]
 
+const DAY_OPTIONS = [
+  { value: 'monday',    label: 'Mon' },
+  { value: 'tuesday',   label: 'Tue' },
+  { value: 'wednesday', label: 'Wed' },
+  { value: 'thursday',  label: 'Thu' },
+  { value: 'friday',    label: 'Fri' },
+  { value: 'saturday',  label: 'Sat' },
+]
+
 interface Props {
   householdId: string
   onClose: () => void
@@ -29,6 +38,8 @@ export default function AddCustomerSheet({ householdId, onClose, onCreated }: Pr
   const [email, setEmail] = useState('')
   const [primaryRate, setPrimaryRate] = useState('')
   const [recurrence, setRecurrence] = useState<Recurrence>(null)
+  const [recurrenceDay, setRecurrenceDay] = useState<string | null>(null)
+  const [recurrenceStart, setRecurrenceStart] = useState('')
   const [notes, setNotes] = useState('')
 
   useEffect(() => {
@@ -57,6 +68,8 @@ export default function AddCustomerSheet({ householdId, onClose, onCreated }: Pr
         email: email.trim() || null,
         primary_rate: primaryRate ? parseFloat(primaryRate) : null,
         recurrence: recurrence ?? null,
+        recurrence_day: (recurrence === 'weekly' || recurrence === 'bi_weekly') ? (recurrenceDay ?? null) : null,
+        recurrence_start: recurrenceStart || null,
         notes: notes.trim() || null,
         status: 'active',
       })
@@ -171,8 +184,8 @@ export default function AddCustomerSheet({ householdId, onClose, onCreated }: Pr
               </div>
             </Field>
 
-            {/* Recurrence */}
-            <Field label="Recurrence">
+            {/* Frequency */}
+            <Field label="Frequency">
               <div className="flex gap-2 flex-wrap">
                 {RECURRENCE_OPTIONS.map(opt => (
                   <button
@@ -190,6 +203,43 @@ export default function AddCustomerSheet({ householdId, onClose, onCreated }: Pr
                 ))}
               </div>
             </Field>
+
+            {/* Day of week — weekly or bi-weekly */}
+            {(recurrence === 'weekly' || recurrence === 'bi_weekly') && (
+              <Field label="Day of Week">
+                <div className="flex gap-2 flex-wrap">
+                  {DAY_OPTIONS.map(opt => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => setRecurrenceDay(d => d === opt.value ? null : opt.value)}
+                      className={`h-10 px-3 rounded-full text-sm font-medium border transition-colors ${
+                        recurrenceDay === opt.value
+                          ? 'bg-[#2C5F8A] border-[#2C5F8A] text-white'
+                          : 'border-gray-200 bg-white text-gray-600'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </Field>
+            )}
+
+            {/* Bi-weekly anchor date */}
+            {recurrence === 'bi_weekly' && (
+              <Field label="First clean date (for bi-weekly scheduling)">
+                <input
+                  type="date"
+                  value={recurrenceStart}
+                  onChange={e => setRecurrenceStart(e.target.value)}
+                  className={inputCls}
+                />
+                <p className="text-xs text-gray-400 mt-1.5 leading-relaxed">
+                  Used to determine which weeks are &apos;on&apos; — set to their next or most recent clean date
+                </p>
+              </Field>
+            )}
 
             {/* Notes */}
             <Field label="Notes">
