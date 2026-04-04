@@ -90,7 +90,7 @@ export default function AddCustomerSheet({ householdId, onClose, onCreated }: Pr
         {/* Scrollable content */}
         <div className="overflow-y-auto flex-1 px-5 pb-4">
           <div className="flex items-center justify-between mt-2 mb-5">
-            <h2 className="text-lg font-bold text-gray-900">New Customer</h2>
+            <h2 className="text-lg font-bold text-gray-900">New Client</h2>
             <button
               onClick={handleClose}
               className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 text-gray-500"
@@ -213,7 +213,7 @@ export default function AddCustomerSheet({ householdId, onClose, onCreated }: Pr
             className="w-full h-12 rounded-xl font-semibold text-white text-sm disabled:opacity-50"
             style={{ backgroundColor: '#2C5F8A' }}
           >
-            {saving ? 'Saving…' : 'Add Customer'}
+            {saving ? 'Saving…' : 'Add Client'}
           </button>
         </div>
       </div>

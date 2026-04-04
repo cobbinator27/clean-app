@@ -174,7 +174,7 @@ export default function CustomersPage() {
       {/* Header */}
       <header className="sticky top-0 z-30 bg-white border-b border-gray-100 shadow-sm px-4 pt-4 pb-0">
         <div className="flex items-center justify-between mb-3">
-          <h1 className="text-xl font-bold text-gray-900">Customers</h1>
+          <h1 className="text-xl font-bold text-gray-900">Clients</h1>
           <span className="text-sm text-gray-400">{customers.length} total</span>
         </div>
 
@@ -187,7 +187,7 @@ export default function CustomersPage() {
             type="search"
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="Search customers…"
+            placeholder="Search clients…"
             className="w-full h-10 pl-9 pr-4 rounded-xl bg-gray-100 text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-200"
           />
         </div>
@@ -225,7 +225,7 @@ export default function CustomersPage() {
               <path d="M16 3.13a4 4 0 0 1 0 7.75" />
             </svg>
             <p className="text-sm font-medium">
-              {search ? 'No customers match your search' : `No ${tab} customers yet`}
+              {search ? 'No clients match your search' : `No ${tab} clients yet`}
             </p>
           </div>
         ) : (
@@ -246,7 +246,7 @@ export default function CustomersPage() {
         onClick={() => setShowAdd(true)}
         className="fixed bottom-24 right-5 w-14 h-14 rounded-full shadow-lg flex items-center justify-center text-white z-30 active:scale-95 transition-transform"
         style={{ backgroundColor: '#0E9F8E' }}
-        aria-label="Add customer"
+        aria-label="Add client"
       >
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" className="w-7 h-7">
           <line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" />

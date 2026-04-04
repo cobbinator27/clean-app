@@ -4,6 +4,10 @@ import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
 import type { CleanCustomer, CleanEvent, EventStatus, Recurrence } from '@/types/clean'
+import CleanEventSheet from '@/components/CleanEventSheet'
+import { toLocalDateString, formatDateShort } from '@/lib/date-utils'
+
+type FullEvent = CleanEvent & { customer: CleanCustomer }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -23,19 +27,14 @@ const RECURRENCE_OPTIONS: { value: NonNullable<Recurrence>; label: string }[] = 
   { value: 'monthly',   label: 'Monthly' },
 ]
 
-function formatDate(dateStr: string): string {
+function formatDateFull(dateStr: string): string {
   const [y, m, d] = dateStr.split('-').map(Number)
-  const date = new Date(y, m - 1, d)
-  return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
+  return new Date(y, m - 1, d).toLocaleDateString('en-US', {
+    weekday: 'short', month: 'short', day: 'numeric', year: 'numeric',
+  })
 }
 
-function formatDateShort(dateStr: string): string {
-  const [y, m, d] = dateStr.split('-').map(Number)
-  const date = new Date(y, m - 1, d)
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-}
-
-const inputCls = 'w-full h-11 rounded-xl border border-gray-200 bg-gray-50 px-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-200 disabled:bg-white disabled:border-transparent disabled:px-0 disabled:text-gray-800'
+const inputCls = 'w-full h-11 rounded-xl border border-gray-200 bg-gray-50 px-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-200'
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -56,22 +55,57 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   )
 }
 
+// ── Event row ─────────────────────────────────────────────────────────────────
+
+function EventRow({ event, onTap }: { event: CleanEvent; onTap: () => void }) {
+  const sc = statusConfig[event.status]
+  return (
+    <button
+      onClick={onTap}
+      className="w-full bg-white rounded-2xl shadow-sm px-4 py-3 flex items-center justify-between text-left active:scale-[0.99] transition-transform"
+    >
+      <div>
+        <p className="text-sm font-semibold text-gray-800">{formatDateFull(event.scheduled_date)}</p>
+        {event.hours_logged != null && (
+          <p className="text-xs text-gray-400 mt-0.5">{event.hours_logged}h</p>
+        )}
+      </div>
+      <div className="flex items-center gap-2">
+        {event.actual_amount != null && (
+          <span className="text-sm font-bold text-gray-700">${event.actual_amount.toFixed(0)}</span>
+        )}
+        {event.expected_amount != null && event.actual_amount == null && (
+          <span className="text-sm text-gray-400">${event.expected_amount.toFixed(0)}</span>
+        )}
+        <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${sc.color}`}>
+          {sc.label}
+        </span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5 text-gray-300 shrink-0">
+          <polyline points="9 18 15 12 9 6" />
+        </svg>
+      </div>
+    </button>
+  )
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
-export default function CustomerDetailPage() {
+export default function ClientDetailPage() {
   const supabase = createClient()
   const router = useRouter()
   const params = useParams()
   const id = params.id as string
 
   const [customer, setCustomer] = useState<CleanCustomer | null>(null)
-  const [events, setEvents] = useState<CleanEvent[]>([])
+  const [upcoming, setUpcoming] = useState<CleanEvent[]>([])
+  const [history, setHistory] = useState<CleanEvent[]>([])
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const [selectedEvent, setSelectedEvent] = useState<FullEvent | null>(null)
 
-  // Editable fields mirror
+  // Editable fields
   const [name, setName] = useState('')
   const [address, setAddress] = useState('')
   const [area, setArea] = useState('')
@@ -84,6 +118,8 @@ export default function CustomerDetailPage() {
   const [notes, setNotes] = useState('')
   const [customerStatus, setCustomerStatus] = useState<'active' | 'inactive'>('active')
 
+  const todayStr = toLocalDateString(new Date())
+
   useEffect(() => {
     async function load() {
       setLoading(true)
@@ -94,18 +130,31 @@ export default function CustomerDetailPage() {
           .select('*')
           .eq('customer_id', id)
           .order('scheduled_date', { ascending: false })
-          .limit(20),
+          .limit(100),
       ])
       if (cx) {
         const c = cx as CleanCustomer
         setCustomer(c)
         populateForm(c)
       }
-      setEvents((ev ?? []) as CleanEvent[])
+      const all = (ev ?? []) as CleanEvent[]
+      splitEvents(all)
       setLoading(false)
     }
     load()
   }, [id])
+
+  function splitEvents(all: CleanEvent[]) {
+    const up = all
+      .filter(e => e.scheduled_date >= todayStr && ['scheduled', 'arrived', 'in_progress'].includes(e.status))
+      .sort((a, b) => a.scheduled_date.localeCompare(b.scheduled_date))
+    const hist = all
+      .filter(e => !up.includes(e))
+      .sort((a, b) => b.scheduled_date.localeCompare(a.scheduled_date))
+      .slice(0, 20)
+    setUpcoming(up)
+    setHistory(hist)
+  }
 
   function populateForm(c: CleanCustomer) {
     setName(c.name)
@@ -131,7 +180,6 @@ export default function CustomerDetailPage() {
     if (!name.trim()) { setSaveError('Name is required'); return }
     setSaving(true)
     setSaveError(null)
-
     const updates = {
       name: name.trim(),
       address: address.trim() || null,
@@ -145,7 +193,6 @@ export default function CustomerDetailPage() {
       notes: notes.trim() || null,
       status: customerStatus,
     }
-
     const { error } = await supabase.from('clean_customers').update(updates).eq('id', id)
     setSaving(false)
     if (error) { setSaveError(error.message); return }
@@ -153,14 +200,26 @@ export default function CustomerDetailPage() {
     setEditing(false)
   }
 
-  // Stats
-  const paidEvents = events.filter(e => e.status === 'paid')
+  function openEvent(ev: CleanEvent) {
+    if (!customer) return
+    setSelectedEvent({ ...ev, customer })
+  }
+
+  function handleEventUpdate(updated: CleanEvent) {
+    // Re-split with updated event merged in
+    const allUpdated = [...upcoming, ...history].map(e => e.id === updated.id ? updated : e)
+    splitEvents(allUpdated)
+    // Keep sheet in sync
+    setSelectedEvent(prev => prev && prev.id === updated.id ? { ...prev, ...updated } : prev)
+  }
+
+  // Stats (from all events combined)
+  const allEvents = [...upcoming, ...history]
+  const paidEvents = allEvents.filter(e => e.status === 'paid')
   const totalEarned = paidEvents.reduce((sum, e) => sum + (e.actual_amount ?? 0), 0)
-  const totalHours = events.reduce((sum, e) => sum + (e.hours_logged ?? 0), 0)
-  const today = new Date()
-  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
-  const nextEvent = events.find(e => e.scheduled_date >= todayStr && ['scheduled', 'arrived'].includes(e.status))
-  const lastEvent = events.find(e => e.scheduled_date < todayStr && e.status === 'paid')
+  const totalHours = allEvents.reduce((sum, e) => sum + (e.hours_logged ?? 0), 0)
+  const nextEvent = upcoming[0] ?? null
+  const lastPaid = history.find(e => e.status === 'paid') ?? null
 
   if (loading) {
     return (
@@ -175,7 +234,7 @@ export default function CustomerDetailPage() {
   if (!customer) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] text-gray-400">
-        <p className="text-sm">Customer not found.</p>
+        <p className="text-sm">Client not found.</p>
         <button onClick={() => router.back()} className="mt-4 text-sm font-medium text-blue-500">Go back</button>
       </div>
     )
@@ -193,18 +252,13 @@ export default function CustomerDetailPage() {
             <polyline points="15 18 9 12 15 6" />
           </svg>
         </button>
-
         <div className="flex-1 min-w-0">
           <h1 className="text-lg font-bold text-gray-900 truncate">{customer.name}</h1>
           {customer.area && <p className="text-xs text-gray-400">{customer.area}</p>}
         </div>
-
         {editing ? (
           <div className="flex items-center gap-2 shrink-0">
-            <button
-              onClick={handleCancelEdit}
-              className="h-9 px-3 rounded-xl border border-gray-200 text-sm text-gray-600 font-medium"
-            >
+            <button onClick={handleCancelEdit} className="h-9 px-3 rounded-xl border border-gray-200 text-sm text-gray-600 font-medium">
               Cancel
             </button>
             <button
@@ -230,9 +284,7 @@ export default function CustomerDetailPage() {
       </header>
 
       <div className="px-4">
-        {saveError && (
-          <p className="mt-3 text-xs text-red-500 text-center">{saveError}</p>
-        )}
+        {saveError && <p className="mt-3 text-xs text-red-500 text-center">{saveError}</p>}
 
         {/* ── Stats ── */}
         <div className="grid grid-cols-3 gap-3 mt-4">
@@ -250,8 +302,8 @@ export default function CustomerDetailPage() {
           </div>
         </div>
 
-        {/* Upcoming / Last */}
-        {(nextEvent || lastEvent) && (
+        {/* Next / Last tiles */}
+        {(nextEvent || lastPaid) && (
           <div className="grid grid-cols-2 gap-3 mt-3">
             {nextEvent && (
               <div className="bg-blue-50 rounded-2xl p-3">
@@ -259,10 +311,10 @@ export default function CustomerDetailPage() {
                 <p className="text-sm font-bold text-blue-700">{formatDateShort(nextEvent.scheduled_date)}</p>
               </div>
             )}
-            {lastEvent && (
+            {lastPaid && (
               <div className="bg-green-50 rounded-2xl p-3">
                 <p className="text-xs text-green-500 font-medium mb-0.5">Last Paid</p>
-                <p className="text-sm font-bold text-green-700">{formatDateShort(lastEvent.scheduled_date)}</p>
+                <p className="text-sm font-bold text-green-700">{formatDateShort(lastPaid.scheduled_date)}</p>
               </div>
             )}
           </div>
@@ -306,18 +358,10 @@ export default function CustomerDetailPage() {
               <Field label="Recurrence">
                 <div className="flex gap-2 flex-wrap">
                   {RECURRENCE_OPTIONS.map(opt => (
-                    <button
-                      key={opt.value}
-                      type="button"
+                    <button key={opt.value} type="button"
                       onClick={() => setRecurrence(r => r === opt.value ? null : opt.value)}
-                      className={`h-10 px-4 rounded-full text-sm font-medium border transition-colors ${
-                        recurrence === opt.value
-                          ? 'bg-[#2C5F8A] border-[#2C5F8A] text-white'
-                          : 'border-gray-200 bg-white text-gray-600'
-                      }`}
-                    >
-                      {opt.label}
-                    </button>
+                      className={`h-10 px-4 rounded-full text-sm font-medium border transition-colors ${recurrence === opt.value ? 'bg-[#2C5F8A] border-[#2C5F8A] text-white' : 'border-gray-200 bg-white text-gray-600'}`}
+                    >{opt.label}</button>
                   ))}
                 </div>
               </Field>
@@ -327,18 +371,9 @@ export default function CustomerDetailPage() {
               <Field label="Status">
                 <div className="flex gap-2">
                   {(['active', 'inactive'] as const).map(s => (
-                    <button
-                      key={s}
-                      type="button"
-                      onClick={() => setCustomerStatus(s)}
-                      className={`h-10 px-4 rounded-full text-sm font-medium border capitalize transition-colors ${
-                        s === customerStatus
-                          ? 'bg-[#2C5F8A] border-[#2C5F8A] text-white'
-                          : 'border-gray-200 bg-white text-gray-600'
-                      }`}
-                    >
-                      {s}
-                    </button>
+                    <button key={s} type="button" onClick={() => setCustomerStatus(s)}
+                      className={`h-10 px-4 rounded-full text-sm font-medium border capitalize transition-colors ${s === customerStatus ? 'bg-[#2C5F8A] border-[#2C5F8A] text-white' : 'border-gray-200 bg-white text-gray-600'}`}
+                    >{s}</button>
                   ))}
                 </div>
               </Field>
@@ -346,24 +381,23 @@ export default function CustomerDetailPage() {
           ) : (
             <>
               {[
-                { label: 'Phone', value: customer.phone, href: customer.phone ? `tel:${customer.phone}` : null },
-                { label: 'Email', value: customer.email, href: customer.email ? `mailto:${customer.email}` : null },
-                { label: 'Address', value: customer.address, href: customer.address ? `maps://?address=${encodeURIComponent(customer.address)}` : null },
-                { label: 'Area', value: customer.area, href: null },
-                { label: 'Primary Rate', value: customer.primary_rate != null ? `$${customer.primary_rate}/clean` : null, href: null },
+                { label: 'Phone',          value: customer.phone,      href: customer.phone ? `tel:${customer.phone}` : null },
+                { label: 'Email',          value: customer.email,      href: customer.email ? `mailto:${customer.email}` : null },
+                { label: 'Address',        value: customer.address,    href: customer.address ? `maps://?address=${encodeURIComponent(customer.address)}` : null },
+                { label: 'Area',           value: customer.area,       href: null },
+                { label: 'Primary Rate',   value: customer.primary_rate   != null ? `$${customer.primary_rate}/clean`   : null, href: null },
                 { label: 'Secondary Rate', value: customer.secondary_rate != null ? `$${customer.secondary_rate}/clean` : null, href: null },
-                { label: 'One-Way Miles', value: customer.one_way_miles != null ? `${customer.one_way_miles} mi` : null, href: null },
-                { label: 'Recurrence', value: customer.recurrence ? RECURRENCE_OPTIONS.find(o => o.value === customer.recurrence)?.label : null, href: null },
+                { label: 'One-Way Miles',  value: customer.one_way_miles  != null ? `${customer.one_way_miles} mi`      : null, href: null },
+                { label: 'Recurrence',     value: customer.recurrence ? RECURRENCE_OPTIONS.find(o => o.value === customer.recurrence)?.label : null, href: null },
               ]
                 .filter(row => row.value)
                 .map(row => (
                   <div key={row.label} className="flex justify-between items-center px-4 py-3">
                     <span className="text-sm text-gray-400">{row.label}</span>
-                    {row.href ? (
-                      <a href={row.href} className="text-sm font-medium text-blue-500 text-right max-w-[60%]">{row.value}</a>
-                    ) : (
-                      <span className="text-sm font-medium text-gray-800 text-right max-w-[60%]">{row.value}</span>
-                    )}
+                    {row.href
+                      ? <a href={row.href} className="text-sm font-medium text-blue-500 text-right max-w-[60%]">{row.value}</a>
+                      : <span className="text-sm font-medium text-gray-800 text-right max-w-[60%]">{row.value}</span>
+                    }
                   </div>
                 ))
               }
@@ -377,40 +411,40 @@ export default function CustomerDetailPage() {
           )}
         </div>
 
-        {/* ── Clean History ── */}
+        {/* ── Upcoming / History ── */}
         {!editing && (
           <>
-            <SectionLabel>Clean History</SectionLabel>
-            {events.length === 0 ? (
-              <p className="text-sm text-gray-400 text-center py-6">No cleans yet</p>
+            <SectionLabel>Upcoming</SectionLabel>
+            {upcoming.length === 0 ? (
+              <p className="text-sm text-gray-400 py-3 pl-1">No upcoming cleans scheduled</p>
             ) : (
               <div className="space-y-2">
-                {events.map(ev => {
-                  const sc = statusConfig[ev.status]
-                  return (
-                    <div key={ev.id} className="bg-white rounded-2xl shadow-sm px-4 py-3 flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-semibold text-gray-800">{formatDate(ev.scheduled_date)}</p>
-                        {ev.hours_logged != null && (
-                          <p className="text-xs text-gray-400 mt-0.5">{ev.hours_logged}h</p>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {ev.actual_amount != null && (
-                          <span className="text-sm font-bold text-gray-700">${ev.actual_amount.toFixed(0)}</span>
-                        )}
-                        <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${sc.color}`}>
-                          {sc.label}
-                        </span>
-                      </div>
-                    </div>
-                  )
-                })}
+                {upcoming.map(ev => (
+                  <EventRow key={ev.id} event={ev} onTap={() => openEvent(ev)} />
+                ))}
+              </div>
+            )}
+
+            <SectionLabel>History</SectionLabel>
+            {history.length === 0 ? (
+              <p className="text-sm text-gray-400 py-3 pl-1">No past cleans yet</p>
+            ) : (
+              <div className="space-y-2">
+                {history.map(ev => (
+                  <EventRow key={ev.id} event={ev} onTap={() => openEvent(ev)} />
+                ))}
               </div>
             )}
           </>
         )}
       </div>
+
+      {/* Event sheet */}
+      <CleanEventSheet
+        event={selectedEvent}
+        onClose={() => setSelectedEvent(null)}
+        onUpdate={handleEventUpdate}
+      />
     </div>
   )
 }

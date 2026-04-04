@@ -87,6 +87,12 @@ export default function CleanEventSheet({ event, onClose, onUpdate }: Props) {
   // Cancel confirm
   const [confirmCancel, setConfirmCancel] = useState(false)
 
+  // Reschedule flow
+  type RescheduleStep = 'idle' | 'picking' | 'choosing'
+  const [rescheduleStep, setRescheduleStep] = useState<RescheduleStep>('idle')
+  const [rescheduleDate, setRescheduleDate] = useState('')
+  const [rescheduleLoading, setRescheduleLoading] = useState(false)
+
   const sheetRef = useRef<HTMLDivElement>(null)
 
   if (!event || !local) return null
@@ -166,6 +172,53 @@ export default function CleanEventSheet({ event, onClose, onUpdate }: Props) {
   async function handleCancelClean() {
     await patch({ status: 'cancelled' })
     setConfirmCancel(false)
+    onClose()
+  }
+
+  // ── Reschedule helpers ────────────────────────────────────────────────────
+
+  const DAY_NAMES = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
+
+  function getDayName(dateStr: string): string {
+    const [y, m, d] = dateStr.split('-').map(Number)
+    return DAY_NAMES[new Date(y, m - 1, d).getDay()]
+  }
+
+  async function handleRescheduleJustThis() {
+    setRescheduleLoading(true)
+    await patch({ scheduled_date: rescheduleDate })
+    setRescheduleStep('idle')
+    setRescheduleLoading(false)
+    onClose()
+  }
+
+  async function handleRescheduleAllFuture() {
+    if (!local) return
+    setRescheduleLoading(true)
+    const newDayOfWeek = getDayName(rescheduleDate)
+    const customerId = local.customer_id
+
+    // 1. Update customer recurrence
+    await supabase.from('clean_customers').update({
+      recurrence_day: newDayOfWeek,
+      recurrence_start: rescheduleDate,
+    }).eq('id', customerId)
+
+    // 2. Delete future unstarted scheduled events (not this one)
+    await supabase.from('clean_events')
+      .delete()
+      .eq('customer_id', customerId)
+      .eq('status', 'scheduled')
+      .gt('scheduled_date', todayDateString())
+      .is('arrived_at', null)
+      .is('notes', null)
+      .neq('id', local.id)
+
+    // 3. Update this event's date
+    await patch({ scheduled_date: rescheduleDate })
+
+    setRescheduleStep('idle')
+    setRescheduleLoading(false)
     onClose()
   }
 
@@ -471,21 +524,58 @@ export default function CleanEventSheet({ event, onClose, onUpdate }: Props) {
             </button>
           )}
 
+          {/* Reschedule */}
+          {local.status === 'scheduled' && rescheduleStep === 'idle' && (
+            <button
+              onClick={() => {
+                setRescheduleDate(local.scheduled_date)
+                setRescheduleStep('picking')
+              }}
+              className="w-full h-11 rounded-xl font-semibold text-sm border border-gray-300 text-gray-600 bg-white"
+            >
+              Reschedule Clean
+            </button>
+          )}
+
+          {/* Reschedule date picker */}
+          {local.status === 'scheduled' && rescheduleStep === 'picking' && (
+            <div className="bg-gray-50 border border-gray-200 rounded-2xl p-4 space-y-3">
+              <p className="text-sm font-semibold text-gray-700">Choose a new date</p>
+              <input
+                type="date"
+                value={rescheduleDate}
+                min={todayDateString()}
+                onChange={e => setRescheduleDate(e.target.value)}
+                className="w-full h-11 rounded-xl border border-gray-200 bg-white px-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-200"
+              />
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setRescheduleStep('idle')}
+                  className="flex-1 h-10 rounded-xl border border-gray-200 text-sm text-gray-600 font-medium bg-white"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => rescheduleDate && setRescheduleStep('choosing')}
+                  disabled={!rescheduleDate}
+                  className="flex-1 h-10 rounded-xl text-white text-sm font-semibold disabled:opacity-40"
+                  style={{ backgroundColor: '#2C5F8A' }}
+                >
+                  Set New Date
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Cancel */}
-          {!['paid', 'cancelled'].includes(local.status) && (
+          {!['paid', 'cancelled'].includes(local.status) && rescheduleStep === 'idle' && (
             confirmCancel ? (
               <div className="flex items-center gap-2">
                 <p className="text-xs text-gray-500 flex-1">Cancel this clean?</p>
-                <button
-                  onClick={() => setConfirmCancel(false)}
-                  className="text-xs font-medium text-gray-500 px-3 py-1.5 rounded-lg border border-gray-200"
-                >
+                <button onClick={() => setConfirmCancel(false)} className="text-xs font-medium text-gray-500 px-3 py-1.5 rounded-lg border border-gray-200">
                   No
                 </button>
-                <button
-                  onClick={handleCancelClean}
-                  className="text-xs font-medium text-red-600 px-3 py-1.5 rounded-lg border border-red-200"
-                >
+                <button onClick={handleCancelClean} className="text-xs font-medium text-red-600 px-3 py-1.5 rounded-lg border border-red-200">
                   Yes, cancel
                 </button>
               </div>
@@ -500,6 +590,46 @@ export default function CleanEventSheet({ event, onClose, onUpdate }: Props) {
           )}
         </div>
       </div>
+
+      {/* Reschedule choice overlay */}
+      {rescheduleStep === 'choosing' && (
+        <div className="fixed inset-0 flex items-end justify-center bg-black/50" style={{ zIndex: 60 }}>
+          <div className="bg-white rounded-t-2xl w-full max-w-lg p-5 pb-10 space-y-3">
+            <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-4" />
+            <p className="text-base font-bold text-gray-900 text-center mb-1">Reschedule to {rescheduleDate}</p>
+            <p className="text-xs text-gray-400 text-center mb-4">How would you like to apply this change?</p>
+
+            <button
+              onClick={handleRescheduleJustThis}
+              disabled={rescheduleLoading}
+              className="w-full bg-white border-2 border-gray-200 rounded-2xl p-4 text-left active:bg-gray-50 disabled:opacity-50"
+            >
+              <p className="font-semibold text-gray-800 text-sm">Just this clean</p>
+              <p className="text-xs text-gray-400 mt-0.5">Move only this appointment</p>
+            </button>
+
+            <button
+              onClick={handleRescheduleAllFuture}
+              disabled={rescheduleLoading}
+              className="w-full border-2 rounded-2xl p-4 text-left active:opacity-90 disabled:opacity-50"
+              style={{ borderColor: '#2C5F8A', backgroundColor: '#EEF4FA' }}
+            >
+              <p className="font-semibold text-sm" style={{ color: '#2C5F8A' }}>This and all future cleans</p>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Update {local.customer.name}&apos;s recurring schedule going forward
+              </p>
+            </button>
+
+            <button
+              onClick={() => setRescheduleStep('picking')}
+              disabled={rescheduleLoading}
+              className="w-full text-sm font-medium text-gray-400 py-2 text-center"
+            >
+              {rescheduleLoading ? 'Saving…' : 'Back'}
+            </button>
+          </div>
+        </div>
+      )}
     </>
   )
 }
