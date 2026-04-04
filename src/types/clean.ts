@@ -22,6 +22,8 @@ export interface CleanCustomer {
   secondary_rate: number | null
   one_way_miles: number | null
   recurrence: Recurrence
+  recurrence_day: string | null   // 'monday' | 'tuesday' | etc.
+  recurrence_start: string | null // 'YYYY-MM-DD' anchor date
   status: 'active' | 'inactive'
   notes: string | null
 }
@@ -34,6 +36,7 @@ export interface CleanEvent {
   status: EventStatus
   event_type: EventType
   is_recurring_instance: boolean
+  recurrence_series_id: string | null
   expected_amount: number | null
   actual_amount: number | null
   payment_method: string | null

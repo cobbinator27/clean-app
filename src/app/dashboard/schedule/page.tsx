@@ -5,64 +5,29 @@ import { createClient } from '@/lib/supabase'
 import type { CleanEvent, CleanCustomer, EventStatus } from '@/types/clean'
 import CleanEventSheet from '@/components/CleanEventSheet'
 import AddCleanSheet from '@/components/AddCleanSheet'
+import {
+  getWeekMonday,
+  addDays,
+  toLocalDateString,
+  formatWeekHeader,
+  formatDayHeader,
+  formatTime,
+  isToday,
+  isPast,
+} from '@/lib/date-utils'
 
 type FullEvent = CleanEvent & { customer: CleanCustomer }
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-function getWeekStart(date: Date): Date {
-  const d = new Date(date)
-  const day = d.getDay()
-  const diff = day === 0 ? -6 : 1 - day // Monday = 0 offset
-  d.setDate(d.getDate() + diff)
-  d.setHours(0, 0, 0, 0)
-  return d
-}
-
-function addDays(date: Date, days: number): Date {
-  const d = new Date(date)
-  d.setDate(d.getDate() + days)
-  return d
-}
-
-function toDateString(date: Date): string {
-  const y = date.getFullYear()
-  const m = String(date.getMonth() + 1).padStart(2, '0')
-  const d = String(date.getDate()).padStart(2, '0')
-  return `${y}-${m}-${d}`
-}
-
-function formatWeekHeader(weekStart: Date): string {
-  return weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-}
-
-function formatDayHeader(date: Date): string {
-  return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
-}
-
-function formatTime(time: string | null): string | null {
-  if (!time) return null
-  const [h, m] = time.split(':').map(Number)
-  const ampm = h >= 12 ? 'PM' : 'AM'
-  const hour = h % 12 || 12
-  return `${hour}:${String(m).padStart(2, '0')} ${ampm}`
-}
-
-function isToday(date: Date): boolean {
-  const today = new Date()
-  return toDateString(date) === toDateString(today)
-}
 
 // ── Status config ─────────────────────────────────────────────────────────────
 
 const statusConfig: Record<EventStatus, { label: string; color: string }> = {
-  scheduled:       { label: 'Scheduled',    color: 'bg-gray-100 text-gray-600' },
-  arrived:         { label: 'Arrived',      color: 'bg-blue-100 text-blue-700' },
-  in_progress:     { label: 'In Progress',  color: 'bg-blue-100 text-blue-700' },
-  done:            { label: 'Done',         color: 'bg-green-100 text-green-700' },
-  payment_pending: { label: 'Payment Due',  color: 'bg-amber-100 text-amber-700' },
-  paid:            { label: 'Paid ✓',       color: 'bg-green-100 text-green-700' },
-  cancelled:       { label: 'Cancelled',    color: 'bg-red-100 text-red-700' },
+  scheduled:       { label: 'Scheduled',   color: 'bg-gray-100 text-gray-600' },
+  arrived:         { label: 'Arrived',     color: 'bg-blue-100 text-blue-700' },
+  in_progress:     { label: 'In Progress', color: 'bg-blue-100 text-blue-700' },
+  done:            { label: 'Done',        color: 'bg-green-100 text-green-700' },
+  payment_pending: { label: 'Payment Due', color: 'bg-amber-100 text-amber-700' },
+  paid:            { label: 'Paid ✓',      color: 'bg-green-100 text-green-700' },
+  cancelled:       { label: 'Cancelled',   color: 'bg-red-100 text-red-700' },
 }
 
 const eventTypeLabels: Record<string, string> = {
@@ -117,11 +82,7 @@ function EventCard({
     const hoursLogged = arrivedAt
       ? Math.round(((now.getTime() - arrivedAt.getTime()) / 3600000) * 100) / 100
       : null
-    onStatusUpdate(event.id, {
-      status: 'done',
-      left_at: now.toISOString(),
-      hours_logged: hoursLogged,
-    })
+    onStatusUpdate(event.id, { status: 'done', left_at: now.toISOString(), hours_logged: hoursLogged })
   }
 
   return (
@@ -129,7 +90,7 @@ function EventCard({
       className="bg-white rounded-2xl shadow-sm p-4 active:scale-[0.99] transition-transform cursor-pointer"
       onClick={() => onTap(event)}
     >
-      {/* Top row: name + status */}
+      {/* Top row */}
       <div className="flex items-start justify-between gap-2 mb-1">
         <span className="font-bold text-gray-900 leading-snug" style={{ fontSize: 18 }}>
           {customer?.name ?? 'Unknown Customer'}
@@ -168,7 +129,7 @@ function EventCard({
       </div>
 
       {/* Action button */}
-      {(status === 'scheduled') && (
+      {status === 'scheduled' && (
         <button
           onClick={handleArrive}
           className="w-full h-11 rounded-xl font-semibold text-white text-sm transition-opacity active:opacity-80"
@@ -203,7 +164,7 @@ function EventCard({
 
 export default function SchedulePage() {
   const supabase = createClient()
-  const [weekStart, setWeekStart] = useState<Date>(() => getWeekStart(new Date()))
+  const [weekStart, setWeekStart] = useState<Date>(() => getWeekMonday(new Date()))
   const [events, setEvents] = useState<CleanEvent[]>([])
   const [loading, setLoading] = useState(true)
   const [householdId, setHouseholdId] = useState<string | null>(null)
@@ -212,7 +173,7 @@ export default function SchedulePage() {
   const [selectedEvent, setSelectedEvent] = useState<FullEvent | null>(null)
   const [toast, setToast] = useState<string | null>(null)
 
-  // Load household_id once
+  // Load household_id and customers once
   useEffect(() => {
     async function loadHousehold() {
       const { data: { user } } = await supabase.auth.getUser()
@@ -224,7 +185,6 @@ export default function SchedulePage() {
         .single()
       if (data) {
         setHouseholdId(data.household_id)
-        // Load active customers for AddCleanSheet
         const { data: cxData } = await supabase
           .from('clean_customers')
           .select('*')
@@ -246,8 +206,8 @@ export default function SchedulePage() {
       .from('clean_events')
       .select('*, customer:clean_customers(*)')
       .eq('household_id', householdId)
-      .gte('scheduled_date', toDateString(weekStart))
-      .lte('scheduled_date', toDateString(weekEnd))
+      .gte('scheduled_date', toLocalDateString(weekStart))
+      .lte('scheduled_date', toLocalDateString(weekEnd))
       .order('scheduled_date')
       .order('scheduled_time', { ascending: true, nullsFirst: true })
     setEvents((data as CleanEvent[]) ?? [])
@@ -265,7 +225,7 @@ export default function SchedulePage() {
     await supabase.from('clean_events').update(updates).eq('id', id)
   }
 
-  // Called by CleanEventSheet when it updates an event
+  // Called by CleanEventSheet when it mutates an event
   function handleEventUpdate(updated: CleanEvent) {
     setEvents(prev => prev.map(e => e.id === updated.id ? { ...e, ...updated } : e))
     setSelectedEvent(prev => prev && prev.id === updated.id ? { ...prev, ...updated } : prev)
@@ -274,9 +234,8 @@ export default function SchedulePage() {
   const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))
   const eventsByDay = weekDays.map(day => ({
     day,
-    events: events.filter(e => e.scheduled_date === toDateString(day)),
+    events: events.filter(e => e.scheduled_date === toLocalDateString(day)),
   }))
-
   const todayIsInWeek = weekDays.some(d => isToday(d))
 
   return (
@@ -293,16 +252,14 @@ export default function SchedulePage() {
             </svg>
           </button>
 
-          <div className="text-center">
-            <h1 className="text-base font-bold text-gray-800">
-              Week of {formatWeekHeader(weekStart)}
-            </h1>
-          </div>
+          <h1 className="text-base font-bold text-gray-800">
+            Week of {formatWeekHeader(weekStart)}
+          </h1>
 
           <div className="flex items-center gap-1">
             {!todayIsInWeek && (
               <button
-                onClick={() => setWeekStart(getWeekStart(new Date()))}
+                onClick={() => setWeekStart(getWeekMonday(new Date()))}
                 className="text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-gray-200 text-gray-600 active:bg-gray-50 mr-1"
               >
                 Today
@@ -324,54 +281,56 @@ export default function SchedulePage() {
       <div className="px-4 py-4 space-y-5">
         {eventsByDay.map(({ day, events: dayEvents }) => {
           const today = isToday(day)
-          return (
-            <section key={toDateString(day)}>
-              {/* Day header */}
-              <div className={`flex items-center gap-2 mb-2 ${today ? '' : ''}`}>
-                <span
-                  className={`text-sm font-bold tracking-wide ${today ? 'text-white rounded-lg px-2 py-0.5' : 'text-gray-400'}`}
-                  style={today ? { backgroundColor: '#2C5F8A' } : {}}
-                >
-                  {formatDayHeader(day)}
-                </span>
-                {today && <span className="text-xs font-medium text-blue-500">Today</span>}
-              </div>
+          const past = isPast(day)
+          const hasEvents = dayEvents.length > 0
 
-              {/* Events or empty */}
-              {loading ? (
-                today || dayEvents.length > 0 ? (
-                  <div className="space-y-3">
-                    <SkeletonCard />
-                  </div>
-                ) : null
-              ) : dayEvents.length === 0 ? (
-                today ? (
-                  <div className="text-xs text-gray-300 font-medium py-1 pl-1">No cleans today</div>
-                ) : null
-              ) : (
-                <div className="space-y-3">
-                  {dayEvents.map(event => (
-                    <EventCard
-                      key={event.id}
-                      event={event}
-                      onStatusUpdate={handleStatusUpdate}
-                      onTap={e => setSelectedEvent(e as FullEvent)}
-                    />
-                  ))}
-                </div>
-              )}
+          // During load: show skeleton only for today
+          if (loading) {
+            if (!today) return null
+            return (
+              <section key={toLocalDateString(day)}>
+                <DayHeader day={day} today={today} past={past} />
+                <div className="space-y-3 mt-2"><SkeletonCard /></div>
+              </section>
+            )
+          }
+
+          // No events: show today's "empty" state, hide all other days
+          if (!hasEvents) {
+            if (!today) return null
+            return (
+              <section key={toLocalDateString(day)}>
+                <DayHeader day={day} today={today} past={past} />
+                <p className="text-xs text-gray-300 font-medium py-1 pl-1 mt-2">No cleans today</p>
+              </section>
+            )
+          }
+
+          // Has events: show header + cards
+          return (
+            <section key={toLocalDateString(day)}>
+              <DayHeader day={day} today={today} past={past} />
+              <div className="space-y-3 mt-2">
+                {dayEvents.map(event => (
+                  <EventCard
+                    key={event.id}
+                    event={event}
+                    onStatusUpdate={handleStatusUpdate}
+                    onTap={e => setSelectedEvent(e as FullEvent)}
+                  />
+                ))}
+              </div>
             </section>
           )
         })}
 
-        {/* Bottom spacer so content isn't hidden behind nav */}
         <div className="h-4" />
       </div>
 
       {/* Floating + button */}
       <button
         onClick={() => setShowAddModal(true)}
-        className="fixed bottom-24 right-5 w-14 h-14 rounded-full shadow-lg flex items-center justify-center text-white text-2xl font-light z-30 active:scale-95 transition-transform"
+        className="fixed bottom-24 right-5 w-14 h-14 rounded-full shadow-lg flex items-center justify-center text-white z-30 active:scale-95 transition-transform"
         style={{ backgroundColor: '#0E9F8E' }}
         aria-label="Add clean"
       >
@@ -389,11 +348,9 @@ export default function SchedulePage() {
           onClose={() => setShowAddModal(false)}
           onCreated={(scheduledDate, customerName) => {
             setShowAddModal(false)
-            // Navigate to the week containing the new clean
             const [y, m, d] = scheduledDate.split('-').map(Number)
-            setWeekStart(getWeekStart(new Date(y, m - 1, d)))
+            setWeekStart(getWeekMonday(new Date(y, m - 1, d)))
             loadEvents()
-            // Show toast
             const [yr, mo, dy] = scheduledDate.split('-').map(Number)
             const dateLabel = new Date(yr, mo - 1, dy).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
             setToast(`Clean added for ${customerName} on ${dateLabel}`)
@@ -404,7 +361,7 @@ export default function SchedulePage() {
 
       {/* Toast */}
       {toast && (
-        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 bg-gray-900 text-white text-sm font-medium px-4 py-3 rounded-2xl shadow-xl max-w-xs text-center transition-all">
+        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 bg-gray-900 text-white text-sm font-medium px-4 py-3 rounded-2xl shadow-xl max-w-xs text-center">
           {toast}
         </div>
       )}
@@ -416,5 +373,27 @@ export default function SchedulePage() {
         onUpdate={handleEventUpdate}
       />
     </>
+  )
+}
+
+// ── Day header sub-component ──────────────────────────────────────────────────
+
+function DayHeader({ day, today, past }: { day: Date; today: boolean; past: boolean }) {
+  return (
+    <div className="flex items-center gap-2">
+      <span
+        className={`text-sm font-bold tracking-wide ${
+          today
+            ? 'text-white rounded-lg px-2 py-0.5'
+            : past
+            ? 'text-gray-300'
+            : 'text-gray-500'
+        }`}
+        style={today ? { backgroundColor: '#2C5F8A' } : {}}
+      >
+        {formatDayHeader(day)}
+      </span>
+      {today && <span className="text-xs font-medium text-blue-400">Today</span>}
+    </div>
   )
 }

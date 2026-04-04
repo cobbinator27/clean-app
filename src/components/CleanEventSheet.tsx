@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase'
 import type { CleanEvent, CleanCustomer, EventStatus } from '@/types/clean'
+import { formatTime, formatDateLong, formatTimestamp, formatPaymentDate, toLocalDateString } from '@/lib/date-utils'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -25,38 +26,8 @@ const eventTypeLabels: Record<string, string> = {
 
 const PAYMENT_METHODS = ['Venmo', 'Check', 'Cash', 'Other']
 
-function formatTime(time: string | null): string | null {
-  if (!time) return null
-  const [h, m] = time.split(':').map(Number)
-  const ampm = h >= 12 ? 'PM' : 'AM'
-  const hour = h % 12 || 12
-  return `${hour}:${String(m).padStart(2, '0')} ${ampm}`
-}
-
-function formatDateNice(dateStr: string): string {
-  // Parse as local date to avoid UTC shift
-  const [y, mo, d] = dateStr.split('-').map(Number)
-  const date = new Date(y, mo - 1, d)
-  return date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
-}
-
-function formatTimestamp(iso: string): string {
-  const d = new Date(iso)
-  const h = d.getHours()
-  const m = d.getMinutes()
-  const ampm = h >= 12 ? 'PM' : 'AM'
-  const hour = h % 12 || 12
-  return `${hour}:${String(m).padStart(2, '0')} ${ampm}`
-}
-
-function formatPaymentDate(iso: string): string {
-  const d = new Date(iso)
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-}
-
 function todayDateString(): string {
-  const d = new Date()
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  return toLocalDateString(new Date())
 }
 
 // ── Section header ────────────────────────────────────────────────────────────
@@ -254,7 +225,7 @@ export default function CleanEventSheet({ event, onClose, onUpdate }: Props) {
             {/* Date */}
             <div className="flex justify-between items-center px-4 py-3">
               <span className="text-sm text-gray-500">Date</span>
-              <span className="text-sm font-medium text-gray-800">{formatDateNice(local.scheduled_date)}</span>
+              <span className="text-sm font-medium text-gray-800">{formatDateLong(local.scheduled_date)}</span>
             </div>
 
             {/* Time */}
