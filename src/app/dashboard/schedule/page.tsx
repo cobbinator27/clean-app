@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase'
 import type { CleanEvent, CleanCustomer, EventStatus } from '@/types/clean'
 import CleanEventSheet from '@/components/CleanEventSheet'
+import AddCleanSheet from '@/components/AddCleanSheet'
 
 type FullEvent = CleanEvent & { customer: CleanCustomer }
 
@@ -82,50 +83,6 @@ function SkeletonCard() {
       </div>
       <div className="h-4 bg-gray-100 rounded w-48 mb-4" />
       <div className="h-11 bg-gray-100 rounded-xl w-full" />
-    </div>
-  )
-}
-
-// ── Add Clean Modal ───────────────────────────────────────────────────────────
-
-function AddCleanModal({ onClose }: { onClose: () => void }) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40" onClick={onClose}>
-      <div
-        className="bg-white rounded-t-3xl w-full max-w-lg p-6 pb-12"
-        onClick={e => e.stopPropagation()}
-      >
-        <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-6" />
-        <h2 className="text-lg font-bold text-gray-800 mb-1">Add a Clean</h2>
-        <p className="text-sm text-gray-400 mb-6">Quick-add a one-off appointment</p>
-        <div className="space-y-4">
-          <div>
-            <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Customer</label>
-            <div className="mt-1 w-full h-11 rounded-xl border border-gray-200 bg-gray-50 flex items-center px-3 text-sm text-gray-400">
-              Select customer…
-            </div>
-          </div>
-          <div>
-            <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Date</label>
-            <input type="date" className="mt-1 w-full h-11 rounded-xl border border-gray-200 bg-gray-50 px-3 text-sm text-gray-700" />
-          </div>
-          <div>
-            <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Expected Amount</label>
-            <input type="number" placeholder="$0" className="mt-1 w-full h-11 rounded-xl border border-gray-200 bg-gray-50 px-3 text-sm text-gray-700" />
-          </div>
-          <div>
-            <label className="text-xs font-medium text-gray-500 uppercase tracking-wide">Notes</label>
-            <textarea className="mt-1 w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 resize-none" rows={3} placeholder="Optional notes…" />
-          </div>
-        </div>
-        <button
-          className="mt-6 w-full h-12 rounded-xl text-white font-semibold text-sm"
-          style={{ backgroundColor: '#2C5F8A' }}
-          onClick={onClose}
-        >
-          Save — coming soon
-        </button>
-      </div>
     </div>
   )
 }
@@ -250,8 +207,10 @@ export default function SchedulePage() {
   const [events, setEvents] = useState<CleanEvent[]>([])
   const [loading, setLoading] = useState(true)
   const [householdId, setHouseholdId] = useState<string | null>(null)
+  const [customers, setCustomers] = useState<CleanCustomer[]>([])
   const [showAddModal, setShowAddModal] = useState(false)
   const [selectedEvent, setSelectedEvent] = useState<FullEvent | null>(null)
+  const [toast, setToast] = useState<string | null>(null)
 
   // Load household_id once
   useEffect(() => {
@@ -263,7 +222,17 @@ export default function SchedulePage() {
         .select('household_id')
         .eq('user_id', user.id)
         .single()
-      if (data) setHouseholdId(data.household_id)
+      if (data) {
+        setHouseholdId(data.household_id)
+        // Load active customers for AddCleanSheet
+        const { data: cxData } = await supabase
+          .from('clean_customers')
+          .select('*')
+          .eq('household_id', data.household_id)
+          .eq('status', 'active')
+          .order('name')
+        setCustomers((cxData ?? []) as CleanCustomer[])
+      }
     }
     loadHousehold()
   }, [])
@@ -412,8 +381,33 @@ export default function SchedulePage() {
         </svg>
       </button>
 
-      {/* Add modal */}
-      {showAddModal && <AddCleanModal onClose={() => setShowAddModal(false)} />}
+      {/* Add clean sheet */}
+      {showAddModal && householdId && (
+        <AddCleanSheet
+          householdId={householdId}
+          customers={customers}
+          onClose={() => setShowAddModal(false)}
+          onCreated={(scheduledDate, customerName) => {
+            setShowAddModal(false)
+            // Navigate to the week containing the new clean
+            const [y, m, d] = scheduledDate.split('-').map(Number)
+            setWeekStart(getWeekStart(new Date(y, m - 1, d)))
+            loadEvents()
+            // Show toast
+            const [yr, mo, dy] = scheduledDate.split('-').map(Number)
+            const dateLabel = new Date(yr, mo - 1, dy).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+            setToast(`Clean added for ${customerName} on ${dateLabel}`)
+            setTimeout(() => setToast(null), 3500)
+          }}
+        />
+      )}
+
+      {/* Toast */}
+      {toast && (
+        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 bg-gray-900 text-white text-sm font-medium px-4 py-3 rounded-2xl shadow-xl max-w-xs text-center transition-all">
+          {toast}
+        </div>
+      )}
 
       {/* Event detail sheet */}
       <CleanEventSheet
