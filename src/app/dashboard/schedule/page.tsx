@@ -2,7 +2,10 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase'
-import type { CleanEvent, EventStatus } from '@/types/clean'
+import type { CleanEvent, CleanCustomer, EventStatus } from '@/types/clean'
+import CleanEventSheet from '@/components/CleanEventSheet'
+
+type FullEvent = CleanEvent & { customer: CleanCustomer }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -22,7 +25,10 @@ function addDays(date: Date, days: number): Date {
 }
 
 function toDateString(date: Date): string {
-  return date.toISOString().slice(0, 10)
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
 }
 
 function formatWeekHeader(weekStart: Date): string {
@@ -245,7 +251,7 @@ export default function SchedulePage() {
   const [loading, setLoading] = useState(true)
   const [householdId, setHouseholdId] = useState<string | null>(null)
   const [showAddModal, setShowAddModal] = useState(false)
-  const [selectedEvent, setSelectedEvent] = useState<CleanEvent | null>(null)
+  const [selectedEvent, setSelectedEvent] = useState<FullEvent | null>(null)
 
   // Load household_id once
   useEffect(() => {
@@ -284,10 +290,16 @@ export default function SchedulePage() {
     else setLoading(false)
   }, [householdId, loadEvents])
 
-  // Optimistic status update
+  // Optimistic status update (from cards)
   async function handleStatusUpdate(id: string, updates: Partial<CleanEvent>) {
     setEvents(prev => prev.map(e => e.id === id ? { ...e, ...updates } : e))
     await supabase.from('clean_events').update(updates).eq('id', id)
+  }
+
+  // Called by CleanEventSheet when it updates an event
+  function handleEventUpdate(updated: CleanEvent) {
+    setEvents(prev => prev.map(e => e.id === updated.id ? { ...e, ...updated } : e))
+    setSelectedEvent(prev => prev && prev.id === updated.id ? { ...prev, ...updated } : prev)
   }
 
   const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))
@@ -364,7 +376,9 @@ export default function SchedulePage() {
                   </div>
                 ) : null
               ) : dayEvents.length === 0 ? (
-                <div className="text-xs text-gray-300 font-medium py-1 pl-1">No cleans</div>
+                today ? (
+                  <div className="text-xs text-gray-300 font-medium py-1 pl-1">No cleans today</div>
+                ) : null
               ) : (
                 <div className="space-y-3">
                   {dayEvents.map(event => (
@@ -372,7 +386,7 @@ export default function SchedulePage() {
                       key={event.id}
                       event={event}
                       onStatusUpdate={handleStatusUpdate}
-                      onTap={setSelectedEvent}
+                      onTap={e => setSelectedEvent(e as FullEvent)}
                     />
                   ))}
                 </div>
@@ -401,52 +415,12 @@ export default function SchedulePage() {
       {/* Add modal */}
       {showAddModal && <AddCleanModal onClose={() => setShowAddModal(false)} />}
 
-      {/* Event detail sheet (stub) */}
-      {selectedEvent && (
-        <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/40"
-          onClick={() => setSelectedEvent(null)}
-        >
-          <div
-            className="bg-white rounded-t-3xl w-full max-w-lg p-6 pb-12"
-            onClick={e => e.stopPropagation()}
-          >
-            <div className="w-10 h-1 bg-gray-300 rounded-full mx-auto mb-6" />
-            <h2 className="text-lg font-bold text-gray-800 mb-1">
-              {selectedEvent.customer?.name ?? 'Clean'}
-            </h2>
-            <p className="text-sm text-gray-400 mb-4">{selectedEvent.customer?.address}</p>
-            <div className="grid grid-cols-2 gap-3 text-sm">
-              <div className="bg-gray-50 rounded-xl p-3">
-                <p className="text-xs text-gray-400 mb-0.5">Date</p>
-                <p className="font-medium text-gray-700">{selectedEvent.scheduled_date}</p>
-              </div>
-              <div className="bg-gray-50 rounded-xl p-3">
-                <p className="text-xs text-gray-400 mb-0.5">Status</p>
-                <p className="font-medium text-gray-700">{statusConfig[selectedEvent.status].label}</p>
-              </div>
-              {selectedEvent.expected_amount != null && (
-                <div className="bg-gray-50 rounded-xl p-3">
-                  <p className="text-xs text-gray-400 mb-0.5">Expected</p>
-                  <p className="font-medium text-gray-700">${selectedEvent.expected_amount}</p>
-                </div>
-              )}
-              {selectedEvent.hours_logged != null && (
-                <div className="bg-gray-50 rounded-xl p-3">
-                  <p className="text-xs text-gray-400 mb-0.5">Hours</p>
-                  <p className="font-medium text-gray-700">{selectedEvent.hours_logged}h</p>
-                </div>
-              )}
-            </div>
-            {selectedEvent.notes && (
-              <div className="mt-3 bg-gray-50 rounded-xl p-3">
-                <p className="text-xs text-gray-400 mb-0.5">Notes</p>
-                <p className="text-sm text-gray-700">{selectedEvent.notes}</p>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+      {/* Event detail sheet */}
+      <CleanEventSheet
+        event={selectedEvent}
+        onClose={() => setSelectedEvent(null)}
+        onUpdate={handleEventUpdate}
+      />
     </>
   )
 }
