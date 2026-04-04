@@ -9,14 +9,20 @@ export type EventStatus =
 
 export type EventType = 'regular' | 'one_off' | 'move_out' | 'deep_clean' | 'other'
 
+export type Recurrence = 'weekly' | 'bi_weekly' | 'monthly' | null
+
 export interface CleanCustomer {
   id: string
   name: string
   address: string | null
+  area: string | null
   phone: string | null
+  email: string | null
   primary_rate: number | null
   secondary_rate: number | null
   one_way_miles: number | null
+  recurrence: Recurrence
+  is_active: boolean
   notes: string | null
 }
 
