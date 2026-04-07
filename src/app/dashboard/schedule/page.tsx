@@ -162,7 +162,7 @@ function EventCard({
           {/* Status badge — long press opens picker */}
           <span
             className={`shrink-0 text-xs font-semibold px-2.5 py-1 rounded-full transition-colors ${badgeClass}`}
-            style={{ userSelect: 'none', WebkitUserSelect: 'none', touchAction: 'manipulation' }}
+            style={{ userSelect: 'none', WebkitUserSelect: 'none', touchAction: 'none', WebkitTouchCallout: 'none' } as React.CSSProperties}
             onContextMenu={e => { e.preventDefault(); e.stopPropagation() }}
             onMouseDown={e => { e.stopPropagation(); startBadgeLongPress() }}
             onMouseUp={e => { e.stopPropagation(); cancelBadgeLongPress() }}
