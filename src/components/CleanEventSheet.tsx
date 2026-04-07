@@ -219,6 +219,7 @@ export default function CleanEventSheet({ event, onClose, onUpdate }: Props) {
 
   function longPressProps(tapAction: () => void) {
     return {
+      onContextMenu: (e: React.MouseEvent) => e.preventDefault(),
       onMouseDown: startLongPress,
       onMouseUp: cancelLongPress,
       onMouseLeave: cancelLongPress,
