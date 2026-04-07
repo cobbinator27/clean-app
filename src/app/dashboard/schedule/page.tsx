@@ -1,10 +1,11 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase'
 import type { CleanEvent, CleanCustomer, EventStatus } from '@/types/clean'
 import CleanEventSheet from '@/components/CleanEventSheet'
 import AddCleanSheet from '@/components/AddCleanSheet'
+import StatusPicker from '@/components/StatusPicker'
 import {
   getWeekMonday,
   addDays,
@@ -58,14 +59,43 @@ function EventCard({
   event,
   onStatusUpdate,
   onTap,
+  onOpenSheet,
 }: {
   event: CleanEvent
   onStatusUpdate: (id: string, updates: Partial<CleanEvent>) => void
   onTap: (event: CleanEvent) => void
+  onOpenSheet: (event: CleanEvent) => void
 }) {
   const customer = event.customer
   const status = event.status
   const sc = statusConfig[status]
+
+  const [showPicker, setShowPicker] = useState(false)
+  const [badgeDark, setBadgeDark] = useState(false)
+  const [clearTimesConfirm, setClearTimesConfirm] = useState(false)
+  const [pendingStatus, setPendingStatus] = useState<EventStatus | null>(null)
+
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const darkenTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const longPressTriggered = useRef(false)
+
+  function startBadgeLongPress() {
+    longPressTriggered.current = false
+    darkenTimer.current = setTimeout(() => setBadgeDark(true), 300)
+    longPressTimer.current = setTimeout(() => {
+      longPressTriggered.current = true
+      setBadgeDark(false)
+      setShowPicker(true)
+    }, 500)
+  }
+
+  function cancelBadgeLongPress() {
+    if (longPressTimer.current) clearTimeout(longPressTimer.current)
+    if (darkenTimer.current) clearTimeout(darkenTimer.current)
+    longPressTimer.current = null
+    darkenTimer.current = null
+    setBadgeDark(false)
+  }
 
   function handleArrive(e: React.MouseEvent) {
     e.stopPropagation()
@@ -82,72 +112,150 @@ function EventCard({
     onStatusUpdate(event.id, { status: 'done', left_at: now.toISOString(), hours_logged: hoursLogged })
   }
 
+  function handlePickStatus(newStatus: EventStatus) {
+    setShowPicker(false)
+    if (newStatus === status) return
+
+    if (newStatus === 'paid' && event.actual_amount == null) {
+      // Open sheet to handle payment flow
+      onOpenSheet(event)
+      return
+    }
+
+    if (newStatus === 'scheduled' && (event.arrived_at || event.left_at)) {
+      setPendingStatus(newStatus)
+      setClearTimesConfirm(true)
+      return
+    }
+
+    onStatusUpdate(event.id, { status: newStatus })
+  }
+
+  function handleClearTimesYes() {
+    if (pendingStatus) onStatusUpdate(event.id, { status: pendingStatus, arrived_at: null, left_at: null })
+    setClearTimesConfirm(false)
+    setPendingStatus(null)
+  }
+
+  function handleClearTimesNo() {
+    if (pendingStatus) onStatusUpdate(event.id, { status: pendingStatus })
+    setClearTimesConfirm(false)
+    setPendingStatus(null)
+  }
+
+  // Compute badge color — slightly darker when long-press held
+  const badgeClass = badgeDark
+    ? sc.color.replace('100', '200')
+    : sc.color
+
   return (
-    <div
-      className="bg-white rounded-2xl shadow-sm p-4 active:scale-[0.99] transition-transform cursor-pointer"
-      onClick={() => onTap(event)}
-    >
-      {/* Top row */}
-      <div className="flex items-start justify-between gap-2 mb-1">
-        <span className="font-bold text-gray-900 leading-snug" style={{ fontSize: 18 }}>
-          {customer?.name ?? 'Unknown Customer'}
-        </span>
-        <span className={`shrink-0 text-xs font-semibold px-2.5 py-1 rounded-full ${sc.color}`}>
-          {sc.label}
-        </span>
+    <>
+      <div
+        className="bg-white rounded-2xl shadow-sm p-4 active:scale-[0.99] transition-transform cursor-pointer"
+        onClick={() => onTap(event)}
+      >
+        {/* Top row */}
+        <div className="flex items-start justify-between gap-2 mb-1">
+          <span className="font-bold text-gray-900 leading-snug" style={{ fontSize: 18 }}>
+            {customer?.name ?? 'Unknown Customer'}
+          </span>
+          {/* Status badge — long press opens picker */}
+          <span
+            className={`shrink-0 text-xs font-semibold px-2.5 py-1 rounded-full select-none transition-colors ${badgeClass}`}
+            onMouseDown={e => { e.stopPropagation(); startBadgeLongPress() }}
+            onMouseUp={e => { e.stopPropagation(); cancelBadgeLongPress() }}
+            onMouseLeave={e => { e.stopPropagation(); cancelBadgeLongPress() }}
+            onTouchStart={e => { e.stopPropagation(); startBadgeLongPress() }}
+            onTouchEnd={e => { e.stopPropagation(); cancelBadgeLongPress() }}
+            onTouchMove={e => { e.stopPropagation(); cancelBadgeLongPress() }}
+            onClick={e => {
+              e.stopPropagation()
+              if (longPressTriggered.current) { longPressTriggered.current = false }
+            }}
+          >
+            {sc.label}
+          </span>
+        </div>
+
+        {/* Address */}
+        {customer?.address && (
+          <p className="text-sm text-gray-400 mb-2 leading-snug">{customer.address}</p>
+        )}
+
+        {/* Meta row */}
+        <div className="flex items-center gap-3 mb-3 flex-wrap">
+          {event.scheduled_time && (
+            <span className="text-sm text-gray-500">{formatTime(event.scheduled_time)}</span>
+          )}
+          {event.expected_amount != null && (
+            <span className="text-base font-semibold text-gray-800">
+              ${event.expected_amount.toFixed(0)}
+            </span>
+          )}
+          {event.event_type !== 'regular' && eventTypeLabels[event.event_type] && (
+            <span className="text-xs font-medium bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full">
+              {eventTypeLabels[event.event_type]}
+            </span>
+          )}
+        </div>
+
+        {/* Action button */}
+        {status === 'scheduled' && (
+          <button
+            onClick={handleArrive}
+            className="w-full h-11 rounded-xl font-semibold text-white text-sm transition-opacity active:opacity-80"
+            style={{ backgroundColor: '#0E9F8E' }}
+          >
+            Arrive
+          </button>
+        )}
+        {(status === 'arrived' || status === 'in_progress') && (
+          <button
+            onClick={handleDone}
+            className="w-full h-11 rounded-xl font-semibold text-white text-sm transition-opacity active:opacity-80"
+            style={{ backgroundColor: '#0E9F8E' }}
+          >
+            Mark Done
+          </button>
+        )}
+        {(status === 'done' || status === 'payment_pending') && (
+          <button
+            onClick={e => { e.stopPropagation(); onOpenSheet(event) }}
+            className="w-full h-11 rounded-xl font-semibold text-white text-sm transition-opacity active:opacity-80"
+            style={{ backgroundColor: '#D97706' }}
+          >
+            Log Payment
+          </button>
+        )}
+
+        {/* Clear times confirm (rendered inside card to avoid layout shift) */}
+        {clearTimesConfirm && (
+          <div
+            className="mt-3 bg-amber-50 border border-amber-200 rounded-2xl p-3 space-y-2"
+            onClick={e => e.stopPropagation()}
+          >
+            <p className="text-sm text-amber-800 font-medium">Also clear arrival and departure times?</p>
+            <div className="flex gap-2">
+              <button onClick={handleClearTimesNo} className="flex-1 h-9 rounded-xl border border-gray-200 text-sm text-gray-600 font-medium bg-white">
+                No, keep times
+              </button>
+              <button onClick={handleClearTimesYes} className="flex-1 h-9 rounded-xl text-white text-sm font-semibold" style={{ backgroundColor: '#D97706' }}>
+                Yes, clear
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Address */}
-      {customer?.address && (
-        <p className="text-sm text-gray-400 mb-2 leading-snug">{customer.address}</p>
+      {/* Status picker modal */}
+      {showPicker && (
+        <StatusPicker
+          currentStatus={status}
+          onSelect={handlePickStatus}
+          onClose={() => setShowPicker(false)}
+        />
       )}
-
-      {/* Meta row */}
-      <div className="flex items-center gap-3 mb-3 flex-wrap">
-        {event.scheduled_time && (
-          <span className="text-sm text-gray-500">{formatTime(event.scheduled_time)}</span>
-        )}
-        {event.expected_amount != null && (
-          <span className="text-base font-semibold text-gray-800">
-            ${event.expected_amount.toFixed(0)}
-          </span>
-        )}
-        {event.event_type !== 'regular' && eventTypeLabels[event.event_type] && (
-          <span className="text-xs font-medium bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full">
-            {eventTypeLabels[event.event_type]}
-          </span>
-        )}
-      </div>
-
-      {/* Action button */}
-      {status === 'scheduled' && (
-        <button
-          onClick={handleArrive}
-          className="w-full h-11 rounded-xl font-semibold text-white text-sm transition-opacity active:opacity-80"
-          style={{ backgroundColor: '#0E9F8E' }}
-        >
-          Arrive
-        </button>
-      )}
-      {(status === 'arrived' || status === 'in_progress') && (
-        <button
-          onClick={handleDone}
-          className="w-full h-11 rounded-xl font-semibold text-white text-sm transition-opacity active:opacity-80"
-          style={{ backgroundColor: '#0E9F8E' }}
-        >
-          Mark Done
-        </button>
-      )}
-      {(status === 'done' || status === 'payment_pending') && (
-        <button
-          onClick={e => e.stopPropagation()}
-          className="w-full h-11 rounded-xl font-semibold text-white text-sm transition-opacity active:opacity-80"
-          style={{ backgroundColor: '#D97706' }}
-        >
-          Log Payment
-        </button>
-      )}
-    </div>
+    </>
   )
 }
 
@@ -308,6 +416,7 @@ export default function SchedulePage() {
                     event={event}
                     onStatusUpdate={handleStatusUpdate}
                     onTap={e => setSelectedEvent(e as FullEvent)}
+                    onOpenSheet={e => setSelectedEvent(e as FullEvent)}
                   />
                 ))}
               </div>

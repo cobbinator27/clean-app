@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase'
 import type { CleanEvent, CleanCustomer, EventStatus } from '@/types/clean'
 import { formatTime, formatDateLong, formatPaymentDate, toLocalDateString } from '@/lib/date-utils'
+import StatusPicker from '@/components/StatusPicker'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -873,35 +874,13 @@ export default function CleanEventSheet({ event, onClose, onUpdate }: Props) {
         </div>
       )}
 
-      {/* Status picker modal (long press) */}
+      {/* Status picker modal (long press on action button) */}
       {showStatusModal && (
-        <>
-          <div
-            className="fixed inset-0 bg-black/50"
-            style={{ zIndex: 70 }}
-            onClick={() => setShowStatusModal(false)}
-          />
-          <div
-            className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-2xl shadow-2xl w-64 overflow-hidden"
-            style={{ zIndex: 71 }}
-          >
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest px-4 pt-4 pb-2">Set status</p>
-            {ALL_STATUSES.map(s => {
-              const cfg = statusConfig[s]
-              const active = local.status === s
-              return (
-                <button
-                  key={s}
-                  onClick={() => handleStatusPick(s)}
-                  className={`w-full flex items-center justify-between px-4 py-3.5 text-sm border-t border-gray-100 transition-colors active:bg-gray-50 ${active ? 'bg-gray-50' : 'bg-white'}`}
-                >
-                  <span className={active ? 'font-bold text-gray-900' : 'text-gray-700'}>{cfg.label}</span>
-                  {active && <CheckIcon className="w-4 h-4 text-green-500" />}
-                </button>
-              )
-            })}
-          </div>
-        </>
+        <StatusPicker
+          currentStatus={local.status}
+          onSelect={handleStatusPick}
+          onClose={() => setShowStatusModal(false)}
+        />
       )}
     </>
   )
