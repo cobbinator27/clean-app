@@ -229,10 +229,18 @@ export default function ClientDetailPage() {
       notes: notes.trim() || null,
       status: customerStatus,
     }
+    console.log('[client-detail] saving updates:', updates)
     const { error } = await supabase.from('clean_customers').update(updates).eq('id', id)
+    if (error) { setSaving(false); setSaveError(error.message); return }
+
+    // Reload from Supabase so view mode reflects persisted values
+    const { data: fresh } = await supabase.from('clean_customers').select('*').eq('id', id).single()
     setSaving(false)
-    if (error) { setSaveError(error.message); return }
-    setCustomer(prev => prev ? { ...prev, ...updates } : prev)
+    if (fresh) {
+      const c = fresh as CleanCustomer
+      setCustomer(c)
+      populateForm(c)
+    }
     setEditing(false)
   }
 

@@ -77,43 +77,46 @@ export async function generateRecurringEvents(
     const candidateDates = buildCandidateDates(customer, today, endDate)
     if (candidateDates.length === 0) continue
 
-    // 2. Fetch all existing events for this customer in the window at once
+    // 2. Fetch ALL existing events for this customer in the window (including cancelled)
     const { data: existingData } = await supabase
       .from('clean_events')
-      .select('id, scheduled_date, status, notes, arrived_at')
+      .select('scheduled_date, status, notes, arrived_at')
       .eq('customer_id', customer.id)
       .gte('scheduled_date', toLocalDateString(today))
       .lte('scheduled_date', toLocalDateString(endDate))
-      .neq('status', 'cancelled')
 
     const existing = (existingData ?? []) as Array<{
-      id: string
       scheduled_date: string
       status: string
       notes: string | null
       arrived_at: string | null
     }>
 
-    const existingByDate = new Map(existing.map(e => [e.scheduled_date, e]))
+    // Build a Set of all occupied dates (any status, including cancelled)
+    const existingDates = new Set(existing.map(e => e.scheduled_date))
+
+    // Separately track protected dates for the result count
+    const protectedDates = new Set(
+      existing
+        .filter(e =>
+          e.status !== 'scheduled' ||
+          (e.notes !== null && e.notes.trim() !== '') ||
+          e.arrived_at !== null
+        )
+        .map(e => e.scheduled_date)
+    )
 
     // 3. Determine which dates need a new insert
     const seriesId = crypto.randomUUID()
     const toInsert: object[] = []
 
     for (const dateStr of candidateDates) {
-      const ev = existingByDate.get(dateStr)
-
-      if (ev) {
-        // Event exists — check if protected
-        const isProtected =
-          ev.status !== 'scheduled' ||
-          (ev.notes !== null && ev.notes.trim() !== '') ||
-          ev.arrived_at !== null
-
-        if (isProtected) {
+      if (existingDates.has(dateStr)) {
+        // Any existing event on this date (including cancelled) → skip
+        if (protectedDates.has(dateStr)) {
           totalProtected++
         } else {
-          totalSkipped++ // plain scheduled, already exists
+          totalSkipped++
         }
         continue
       }
