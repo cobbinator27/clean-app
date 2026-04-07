@@ -161,11 +161,12 @@ function EventCard({
           </span>
           {/* Status badge — long press opens picker */}
           <span
-            className={`shrink-0 text-xs font-semibold px-2.5 py-1 rounded-full select-none transition-colors ${badgeClass}`}
+            className={`shrink-0 text-xs font-semibold px-2.5 py-1 rounded-full transition-colors ${badgeClass}`}
+            style={{ userSelect: 'none', WebkitUserSelect: 'none' }}
             onMouseDown={e => { e.stopPropagation(); startBadgeLongPress() }}
             onMouseUp={e => { e.stopPropagation(); cancelBadgeLongPress() }}
             onMouseLeave={e => { e.stopPropagation(); cancelBadgeLongPress() }}
-            onTouchStart={e => { e.stopPropagation(); startBadgeLongPress() }}
+            onTouchStart={e => { e.preventDefault(); e.stopPropagation(); startBadgeLongPress() }}
             onTouchEnd={e => { e.stopPropagation(); cancelBadgeLongPress() }}
             onTouchMove={e => { e.stopPropagation(); cancelBadgeLongPress() }}
             onClick={e => {

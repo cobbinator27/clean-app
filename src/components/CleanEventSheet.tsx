@@ -222,7 +222,7 @@ export default function CleanEventSheet({ event, onClose, onUpdate }: Props) {
       onMouseDown: startLongPress,
       onMouseUp: cancelLongPress,
       onMouseLeave: cancelLongPress,
-      onTouchStart: startLongPress,
+      onTouchStart: (e: React.TouchEvent) => { e.preventDefault(); startLongPress() },
       onTouchEnd: cancelLongPress,
       onTouchMove: cancelLongPress,
       onClick: () => {
