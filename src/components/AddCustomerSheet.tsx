@@ -67,7 +67,7 @@ export default function AddCustomerSheet({ householdId, onClose, onCreated }: Pr
         phone: phone.trim() || null,
         email: email.trim() || null,
         primary_rate: primaryRate ? parseFloat(primaryRate) : null,
-        recurrence: recurrence ?? null,
+        recurrence: (!recurrence || recurrence === null) ? 'none' : recurrence,
         recurrence_day: (recurrence === 'weekly' || recurrence === 'bi_weekly') ? (recurrenceDay ?? null) : null,
         recurrence_start: recurrenceStart || null,
         notes: notes.trim() || null,

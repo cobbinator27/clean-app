@@ -42,7 +42,7 @@ const DAY_LABELS: Record<string, string> = {
 }
 
 function describeSchedule(customer: CleanCustomer): string {
-  if (!customer.recurrence) return 'No recurring schedule'
+  if (!customer.recurrence || customer.recurrence === 'none') return 'No recurring schedule'
   const day = customer.recurrence_day ? DAY_LABELS[customer.recurrence_day] ?? customer.recurrence_day : null
   if (customer.recurrence === 'weekly') return day ? `Weekly on ${day}` : 'Weekly'
   if (customer.recurrence === 'bi_weekly') return day ? `Every other ${day}` : 'Bi-Weekly'
@@ -197,7 +197,7 @@ export default function ClientDetailPage() {
     setPrimaryRate(c.primary_rate != null ? String(c.primary_rate) : '')
     setSecondaryRate(c.secondary_rate != null ? String(c.secondary_rate) : '')
     setMiles(c.one_way_miles != null ? String(c.one_way_miles) : '')
-    setRecurrence(c.recurrence ?? null)
+    setRecurrence(c.recurrence ?? 'none')
     setRecurrenceDay(c.recurrence_day ?? null)
     setRecurrenceStart(c.recurrence_start ?? '')
     setNotes(c.notes ?? '')
@@ -223,7 +223,7 @@ export default function ClientDetailPage() {
       primary_rate: primaryRate ? parseFloat(primaryRate) : null,
       secondary_rate: secondaryRate ? parseFloat(secondaryRate) : null,
       one_way_miles: miles ? parseFloat(miles) : null,
-      recurrence: recurrence ?? null,
+      recurrence: (!recurrence || recurrence === null) ? 'none' : recurrence,
       recurrence_day: (recurrence === 'weekly' || recurrence === 'bi_weekly') ? (recurrenceDay ?? null) : null,
       recurrence_start: (recurrence === 'weekly' || recurrence === 'bi_weekly' || recurrence === 'monthly') ? (recurrenceStart || null) : null,
       notes: notes.trim() || null,
@@ -408,8 +408,8 @@ export default function ClientDetailPage() {
                 <div className="flex gap-2 flex-wrap">
                   {/* None pill */}
                   <button type="button"
-                    onClick={() => { setRecurrence(null); setRecurrenceDay(null); setRecurrenceStart('') }}
-                    className={`h-10 px-4 rounded-full text-sm font-medium border transition-colors ${recurrence === null ? 'bg-[#2C5F8A] border-[#2C5F8A] text-white' : 'border-gray-200 bg-white text-gray-600'}`}
+                    onClick={() => { setRecurrence('none'); setRecurrenceDay(null); setRecurrenceStart('') }}
+                    className={`h-10 px-4 rounded-full text-sm font-medium border transition-colors ${(!recurrence || recurrence === 'none') ? 'bg-[#2C5F8A] border-[#2C5F8A] text-white' : 'border-gray-200 bg-white text-gray-600'}`}
                   >None</button>
                   {RECURRENCE_OPTIONS.map(opt => (
                     <button key={opt.value} type="button"
