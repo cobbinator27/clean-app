@@ -9,7 +9,7 @@ export type EventStatus =
 
 export type EventType = 'regular' | 'one_off' | 'move_out' | 'deep_clean' | 'other'
 
-export type Recurrence = 'weekly' | 'bi_weekly' | 'monthly' | 'none' | null
+export type Recurrence = 'weekly' | 'biweekly' | 'monthly' | null
 
 export interface CleanCustomer {
   id: string

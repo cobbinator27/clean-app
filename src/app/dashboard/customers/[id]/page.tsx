@@ -22,9 +22,9 @@ const statusConfig: Record<EventStatus, { label: string; color: string }> = {
 }
 
 const RECURRENCE_OPTIONS: { value: NonNullable<Recurrence>; label: string }[] = [
-  { value: 'weekly',    label: 'Weekly' },
-  { value: 'bi_weekly', label: 'Bi-Weekly' },
-  { value: 'monthly',   label: 'Monthly' },
+  { value: 'weekly',   label: 'Weekly' },
+  { value: 'biweekly', label: 'Bi-Weekly' },
+  { value: 'monthly',  label: 'Monthly' },
 ]
 
 const DAY_OPTIONS = [
@@ -42,10 +42,10 @@ const DAY_LABELS: Record<string, string> = {
 }
 
 function describeSchedule(customer: CleanCustomer): string {
-  if (!customer.recurrence || customer.recurrence === 'none') return 'No recurring schedule'
+  if (!customer.recurrence) return 'No recurring schedule'
   const day = customer.recurrence_day ? DAY_LABELS[customer.recurrence_day] ?? customer.recurrence_day : null
   if (customer.recurrence === 'weekly') return day ? `Weekly on ${day}` : 'Weekly'
-  if (customer.recurrence === 'bi_weekly') return day ? `Every other ${day}` : 'Bi-Weekly'
+  if (customer.recurrence === 'biweekly') return day ? `Every other ${day}` : 'Bi-Weekly'
   if (customer.recurrence === 'monthly') {
     if (customer.recurrence_start) {
       const [, , d] = customer.recurrence_start.split('-').map(Number)
@@ -197,7 +197,7 @@ export default function ClientDetailPage() {
     setPrimaryRate(c.primary_rate != null ? String(c.primary_rate) : '')
     setSecondaryRate(c.secondary_rate != null ? String(c.secondary_rate) : '')
     setMiles(c.one_way_miles != null ? String(c.one_way_miles) : '')
-    setRecurrence(c.recurrence ?? 'none')
+    setRecurrence(c.recurrence ?? null)
     setRecurrenceDay(c.recurrence_day ?? null)
     setRecurrenceStart(c.recurrence_start ?? '')
     setNotes(c.notes ?? '')
@@ -214,6 +214,9 @@ export default function ClientDetailPage() {
     if (!name.trim()) { setSaveError('Name is required'); return }
     setSaving(true)
     setSaveError(null)
+    const sanitizedRecurrence = (['weekly', 'biweekly', 'monthly'] as const).includes(recurrence as 'weekly' | 'biweekly' | 'monthly')
+      ? recurrence
+      : null
     const updates = {
       name: name.trim(),
       address: address.trim() || null,
@@ -223,24 +226,32 @@ export default function ClientDetailPage() {
       primary_rate: primaryRate ? parseFloat(primaryRate) : null,
       secondary_rate: secondaryRate ? parseFloat(secondaryRate) : null,
       one_way_miles: miles ? parseFloat(miles) : null,
-      recurrence: (!recurrence || recurrence === null) ? 'none' : recurrence,
-      recurrence_day: (recurrence === 'weekly' || recurrence === 'bi_weekly') ? (recurrenceDay ?? null) : null,
-      recurrence_start: (recurrence === 'weekly' || recurrence === 'bi_weekly' || recurrence === 'monthly') ? (recurrenceStart || null) : null,
+      recurrence: sanitizedRecurrence,
+      recurrence_day: (sanitizedRecurrence === 'weekly' || sanitizedRecurrence === 'biweekly') ? (recurrenceDay ?? null) : null,
+      recurrence_start: (sanitizedRecurrence === 'weekly' || sanitizedRecurrence === 'biweekly' || sanitizedRecurrence === 'monthly') ? (recurrenceStart || null) : null,
       notes: notes.trim() || null,
       status: customerStatus,
     }
-    console.log('[client-detail] saving updates:', updates)
-    const { error } = await supabase.from('clean_customers').update(updates).eq('id', id)
+    console.log('=== SAVING CLIENT ===')
+    console.log('recurrence state:', recurrence)
+    console.log('sanitizedRecurrence:', sanitizedRecurrence)
+    console.log('recurrenceDay:', recurrenceDay)
+    console.log('recurrenceStart:', recurrenceStart)
+    console.log('full updates:', JSON.stringify(updates, null, 2))
+    const { data: saved, error } = await supabase
+      .from('clean_customers')
+      .update(updates)
+      .eq('id', id)
+      .select()
+      .single()
+    console.log('update error:', error)
+    console.log('update data:', saved)
     if (error) { setSaving(false); setSaveError(error.message); return }
 
-    // Reload from Supabase so view mode reflects persisted values
-    const { data: fresh } = await supabase.from('clean_customers').select('*').eq('id', id).single()
+    const c = saved as CleanCustomer
+    setCustomer(c)
+    populateForm(c)
     setSaving(false)
-    if (fresh) {
-      const c = fresh as CleanCustomer
-      setCustomer(c)
-      populateForm(c)
-    }
     setEditing(false)
   }
 
@@ -408,8 +419,8 @@ export default function ClientDetailPage() {
                 <div className="flex gap-2 flex-wrap">
                   {/* None pill */}
                   <button type="button"
-                    onClick={() => { setRecurrence('none'); setRecurrenceDay(null); setRecurrenceStart('') }}
-                    className={`h-10 px-4 rounded-full text-sm font-medium border transition-colors ${(!recurrence || recurrence === 'none') ? 'bg-[#2C5F8A] border-[#2C5F8A] text-white' : 'border-gray-200 bg-white text-gray-600'}`}
+                    onClick={() => { setRecurrence(null); setRecurrenceDay(null); setRecurrenceStart('') }}
+                    className={`h-10 px-4 rounded-full text-sm font-medium border transition-colors ${!recurrence ? 'bg-[#2C5F8A] border-[#2C5F8A] text-white' : 'border-gray-200 bg-white text-gray-600'}`}
                   >None</button>
                   {RECURRENCE_OPTIONS.map(opt => (
                     <button key={opt.value} type="button"
@@ -420,7 +431,7 @@ export default function ClientDetailPage() {
                 </div>
               </Field>
 
-              {(recurrence === 'weekly' || recurrence === 'bi_weekly') && (
+              {(recurrence === 'weekly' || recurrence === 'biweekly') && (
                 <Field label="Day of Week">
                   <div className="flex gap-2 flex-wrap">
                     {DAY_OPTIONS.map(opt => (
@@ -433,7 +444,7 @@ export default function ClientDetailPage() {
                 </Field>
               )}
 
-              {(recurrence === 'weekly' || recurrence === 'bi_weekly') && (
+              {(recurrence === 'weekly' || recurrence === 'biweekly') && (
                 <Field label="Schedule anchor date">
                   <input
                     type="date"
@@ -442,7 +453,7 @@ export default function ClientDetailPage() {
                     className={inputCls}
                   />
                   <p className="text-xs text-gray-400 mt-1.5 leading-relaxed">
-                    {recurrence === 'bi_weekly'
+                    {recurrence === 'biweekly'
                       ? "For bi-weekly clients, this determines which weeks are 'on'. Set it to any past date when they were cleaned."
                       : "Start date for this client's weekly schedule."}
                   </p>

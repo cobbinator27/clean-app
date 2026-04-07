@@ -51,7 +51,6 @@ export async function generateRecurringEvents(
     .eq('household_id', householdId)
     .eq('status', 'active')
     .not('recurrence', 'is', null)
-    .neq('recurrence', 'none')
 
   if (cxErr) throw new Error(`Failed to load clients: ${cxErr.message}`)
 
@@ -67,10 +66,10 @@ export async function generateRecurringEvents(
   let totalProtected = 0
 
   for (const customer of customers) {
-    if (!customer.recurrence || customer.recurrence === 'none') continue
+    if (!customer.recurrence) continue
 
     // Bi-weekly requires an anchor — skip without one
-    if (customer.recurrence === 'bi_weekly' && !customer.recurrence_start) {
+    if (customer.recurrence === 'biweekly' && !customer.recurrence_start) {
       console.warn(`[schedule-generator] Skipping ${customer.name} — bi-weekly but no recurrence_start set`)
       continue
     }
@@ -210,7 +209,7 @@ function buildCandidateDates(customer: RecurringCustomer, from: Date, to: Date):
       cursor = addDays(cursor, 7)
     }
 
-  } else if (recurrence === 'bi_weekly') {
+  } else if (recurrence === 'biweekly') {
     // recurrence_start is guaranteed non-null here (checked by caller)
     const dayName = recurrence_day ?? 'monday'
     const anchor = parseLocalDate(recurrence_start!)

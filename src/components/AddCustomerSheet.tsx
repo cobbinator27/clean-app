@@ -5,9 +5,9 @@ import { createClient } from '@/lib/supabase'
 import type { CleanCustomer, Recurrence } from '@/types/clean'
 
 const RECURRENCE_OPTIONS: { value: NonNullable<Recurrence>; label: string }[] = [
-  { value: 'weekly',    label: 'Weekly' },
-  { value: 'bi_weekly', label: 'Bi-Weekly' },
-  { value: 'monthly',   label: 'Monthly' },
+  { value: 'weekly',   label: 'Weekly' },
+  { value: 'biweekly', label: 'Bi-Weekly' },
+  { value: 'monthly',  label: 'Monthly' },
 ]
 
 const DAY_OPTIONS = [
@@ -67,8 +67,8 @@ export default function AddCustomerSheet({ householdId, onClose, onCreated }: Pr
         phone: phone.trim() || null,
         email: email.trim() || null,
         primary_rate: primaryRate ? parseFloat(primaryRate) : null,
-        recurrence: (!recurrence || recurrence === null) ? 'none' : recurrence,
-        recurrence_day: (recurrence === 'weekly' || recurrence === 'bi_weekly') ? (recurrenceDay ?? null) : null,
+        recurrence: (['weekly', 'biweekly', 'monthly'] as const).includes(recurrence as 'weekly' | 'biweekly' | 'monthly') ? recurrence : null,
+        recurrence_day: (recurrence === 'weekly' || recurrence === 'biweekly') ? (recurrenceDay ?? null) : null,
         recurrence_start: recurrenceStart || null,
         notes: notes.trim() || null,
         status: 'active',
@@ -205,7 +205,7 @@ export default function AddCustomerSheet({ householdId, onClose, onCreated }: Pr
             </Field>
 
             {/* Day of week — weekly or bi-weekly */}
-            {(recurrence === 'weekly' || recurrence === 'bi_weekly') && (
+            {(recurrence === 'weekly' || recurrence === 'biweekly') && (
               <Field label="Day of Week">
                 <div className="flex gap-2 flex-wrap">
                   {DAY_OPTIONS.map(opt => (
@@ -227,7 +227,7 @@ export default function AddCustomerSheet({ householdId, onClose, onCreated }: Pr
             )}
 
             {/* Bi-weekly anchor date */}
-            {recurrence === 'bi_weekly' && (
+            {recurrence === 'biweekly' && (
               <Field label="First clean date (for bi-weekly scheduling)">
                 <input
                   type="date"

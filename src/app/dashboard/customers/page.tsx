@@ -9,17 +9,15 @@ import AddCustomerSheet from '@/components/AddCustomerSheet'
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const recurrenceLabels: Record<NonNullable<Recurrence>, string> = {
-  weekly:    'Weekly',
-  bi_weekly: 'Bi-Weekly',
-  monthly:   'Monthly',
-  none:      '',
+  weekly:   'Weekly',
+  biweekly: 'Bi-Weekly',
+  monthly:  'Monthly',
 }
 
 const recurrenceColors: Record<NonNullable<Recurrence>, string> = {
-  weekly:    'bg-blue-50 text-blue-600',
-  bi_weekly: 'bg-purple-50 text-purple-600',
-  monthly:   'bg-indigo-50 text-indigo-600',
-  none:      '',
+  weekly:   'bg-blue-50 text-blue-600',
+  biweekly: 'bg-purple-50 text-purple-600',
+  monthly:  'bg-indigo-50 text-indigo-600',
 }
 
 function formatDate(dateStr: string): string {
@@ -70,7 +68,7 @@ function CustomerCard({ customer, onClick }: { customer: CustomerWithNext; onCli
           <span className="font-bold text-gray-900" style={{ fontSize: 17 }}>
             {customer.name}
           </span>
-          {customer.recurrence && customer.recurrence !== 'none' && (
+          {customer.recurrence && (
             <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${recurrenceColors[customer.recurrence]}`}>
               {recurrenceLabels[customer.recurrence]}
             </span>
