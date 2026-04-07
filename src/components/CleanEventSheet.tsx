@@ -194,7 +194,8 @@ export default function CleanEventSheet({ event, onClose, onUpdate }: Props) {
     const updated = { ...local!, ...updates }
     setLocal(updated)
     onUpdate(updated)
-    await supabase.from('clean_events').update(updates).eq('id', local!.id)
+    const { error } = await supabase.from('clean_events').update(updates).eq('id', local!.id)
+    if (error) console.error('[CleanEventSheet] patch failed:', error.message, '| updates:', updates)
   }
 
   // ── Long press logic ──────────────────────────────────────────────────────
@@ -309,8 +310,6 @@ export default function CleanEventSheet({ event, onClose, onUpdate }: Props) {
     if (!arrivedInput) return
     const iso = isoFromScheduledDateAndTime(local!.scheduled_date, arrivedInput)
     if (iso === local!.arrived_at) return
-    await patch({ arrived_at: iso })
-    // Recalc hours if departure set and not manually overridden
     if (local!.left_at && !hoursOverride) {
       const h = calcHours(iso, local!.left_at)
       setManualHoursInput(String(h))
@@ -392,12 +391,22 @@ export default function CleanEventSheet({ event, onClose, onUpdate }: Props) {
   async function handleConfirmPayment() {
     if (!payMethod) return
     setPayLoading(true)
-    await patch({
+    const payUpdates = {
       actual_amount: parseFloat(payAmount),
       payment_method: payMethod,
       payment_date: todayDateString(),
-      status: 'paid',
-    })
+      status: 'paid' as const,
+    }
+    console.log('=== LOGGING PAYMENT ===')
+    console.log('event id:', local!.id)
+    console.log('updates:', JSON.stringify(payUpdates))
+    const { error } = await supabase.from('clean_events').update(payUpdates).eq('id', local!.id)
+    console.log('payment save error:', error)
+    if (!error) {
+      const updated = { ...local!, ...payUpdates }
+      setLocal(updated)
+      onUpdate(updated)
+    }
     setPayStep('idle')
     setPayLoading(false)
   }
