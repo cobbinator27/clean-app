@@ -66,9 +66,6 @@ function EventCard({
   const customer = event.customer
   const status = event.status
   const sc = statusConfig[status]
-  const mapsUrl = customer?.address
-    ? `maps://?address=${encodeURIComponent(customer.address)}`
-    : null
 
   function handleArrive(e: React.MouseEvent) {
     e.stopPropagation()
@@ -102,13 +99,7 @@ function EventCard({
 
       {/* Address */}
       {customer?.address && (
-        <a
-          href={mapsUrl ?? '#'}
-          onClick={e => e.stopPropagation()}
-          className="block text-sm text-blue-500 underline-offset-2 hover:underline mb-2 leading-snug"
-        >
-          {customer.address}
-        </a>
+        <p className="text-sm text-gray-400 mb-2 leading-snug">{customer.address}</p>
       )}
 
       {/* Meta row */}

@@ -3,9 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
-import { generateRecurringEvents } from '@/lib/schedule-generator'
-
-const LAST_GENERATED_KEY = 'clean_last_generated'
+import { generateRecurringEvents, LAST_GENERATED_KEY } from '@/lib/schedule-generator'
 
 function formatTimestamp(iso: string): string {
   const d = new Date(iso)
@@ -56,12 +54,16 @@ export default function SettingsPage() {
       const now = new Date().toISOString()
       localStorage.setItem(LAST_GENERATED_KEY, now)
       setLastGenerated(now)
-      showToast(
-        result.generated === 0
-          ? `All up to date — no new cleans needed (${result.skipped} already exist)`
-          : `Generated ${result.generated} new clean${result.generated !== 1 ? 's' : ''} across ${result.customers} customer${result.customers !== 1 ? 's' : ''}`,
-        true
-      )
+      const parts: string[] = []
+      if (result.generated > 0) {
+        parts.push(`${result.generated} new clean${result.generated !== 1 ? 's' : ''} added`)
+      } else {
+        parts.push('All up to date')
+      }
+      if (result.protected > 0) {
+        parts.push(`${result.protected} protected`)
+      }
+      showToast(parts.join(' · '), true)
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Something went wrong', false)
     } finally {
@@ -88,10 +90,9 @@ export default function SettingsPage() {
           <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Schedule</p>
           <div className="bg-white rounded-2xl shadow-sm p-4 space-y-4">
             <div>
-              <p className="text-sm font-bold text-gray-800 mb-0.5">Auto-generate cleans</p>
+              <p className="text-sm font-bold text-gray-800 mb-0.5">Recurring schedule</p>
               <p className="text-xs text-gray-400 leading-relaxed">
-                Creates recurring clean events for all active customers for the next 10 weeks.
-                Safe to run multiple times — won&apos;t create duplicates.
+                Runs automatically — tap to force refresh
               </p>
             </div>
 
@@ -107,7 +108,7 @@ export default function SettingsPage() {
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
                   </svg>
-                  Generating…
+                  Refreshing…
                 </>
               ) : (
                 <>
@@ -116,14 +117,14 @@ export default function SettingsPage() {
                     <polyline points="1 20 1 14 7 14" />
                     <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
                   </svg>
-                  Generate Schedule for Next 10 Weeks
+                  Refresh Schedule
                 </>
               )}
             </button>
 
             {lastGenerated && (
               <p className="text-xs text-gray-400 text-center">
-                Last generated: {formatTimestamp(lastGenerated)}
+                Last auto-run: {formatTimestamp(lastGenerated)}
               </p>
             )}
           </div>

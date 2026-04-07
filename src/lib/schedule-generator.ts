@@ -1,10 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import type { CleanCustomer } from '@/types/clean'
-
-// Minimal shape we need from the DB — partial of CleanCustomer plus household_id
-interface RecurringCustomer extends Pick<CleanCustomer, 'id' | 'name' | 'primary_rate' | 'recurrence' | 'recurrence_day' | 'recurrence_start'> {
-  household_id: string
-}
+import type { CleanCustomer, CleanEvent } from '@/types/clean'
 import {
   toLocalDateString,
   addDays,
@@ -13,23 +8,43 @@ import {
 } from './date-utils'
 
 const WEEKS_AHEAD = 10
+const AUTO_RUN_INTERVAL_MS = 6 * 60 * 60 * 1000 // 6 hours
+export const LAST_GENERATED_KEY = 'clean_last_generated'
 
-interface GeneratorResult {
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+interface RecurringCustomer extends Pick<
+  CleanCustomer,
+  'id' | 'name' | 'primary_rate' | 'recurrence' | 'recurrence_day' | 'recurrence_start'
+> {
+  household_id: string
+}
+
+export interface GeneratorResult {
   generated: number
   skipped: number
+  protected: number
   customers: number
 }
 
+// ── Main export ───────────────────────────────────────────────────────────────
+
 /**
- * Generate recurring clean events for all active customers with a recurrence
- * schedule. Looks ahead WEEKS_AHEAD weeks from today. Skips dates that
- * already have an event for that customer.
+ * Generate recurring clean events for all active clients with a recurrence
+ * schedule. Looks ahead WEEKS_AHEAD weeks from today.
+ *
+ * Safety rules:
+ * - Events with status != 'scheduled', non-null notes, or non-null arrived_at
+ *   are "protected" and are never touched.
+ * - Plain 'scheduled' events with no modifications are left in place (skipped).
+ * - Bi-weekly customers without recurrence_start are skipped — we won't guess.
+ * - Uses a single batch insert per customer for performance.
  */
 export async function generateRecurringEvents(
   supabase: SupabaseClient,
   householdId: string
 ): Promise<GeneratorResult> {
-  // 1. Load active customers with recurrence set
+  // 1. Load active customers with a recurrence set
   const { data: customerData, error: cxErr } = await supabase
     .from('clean_customers')
     .select('id, name, primary_rate, recurrence, recurrence_day, recurrence_start, household_id')
@@ -37,10 +52,10 @@ export async function generateRecurringEvents(
     .eq('status', 'active')
     .not('recurrence', 'is', null)
 
-  if (cxErr) throw new Error(`Failed to load customers: ${cxErr.message}`)
+  if (cxErr) throw new Error(`Failed to load clients: ${cxErr.message}`)
 
   const customers = (customerData ?? []) as RecurringCustomer[]
-  if (customers.length === 0) return { generated: 0, skipped: 0, customers: 0 }
+  if (customers.length === 0) return { generated: 0, skipped: 0, protected: 0, customers: 0 }
 
   const today = new Date()
   today.setHours(0, 0, 0, 0)
@@ -48,34 +63,63 @@ export async function generateRecurringEvents(
 
   let totalGenerated = 0
   let totalSkipped = 0
+  let totalProtected = 0
 
   for (const customer of customers) {
     if (!customer.recurrence) continue
 
-    // Each customer gets one stable series UUID per run
-    const seriesId = crypto.randomUUID()
+    // Bi-weekly requires an anchor — skip without one
+    if (customer.recurrence === 'bi_weekly' && !customer.recurrence_start) {
+      console.warn(`[schedule-generator] Skipping ${customer.name} — bi-weekly but no recurrence_start set`)
+      continue
+    }
 
-    // Build candidate dates based on recurrence type
-    const candidateDates = buildCandidateDates(customer as RecurringCustomer, today, endDate)
+    const candidateDates = buildCandidateDates(customer, today, endDate)
+    if (candidateDates.length === 0) continue
+
+    // 2. Fetch all existing events for this customer in the window at once
+    const { data: existingData } = await supabase
+      .from('clean_events')
+      .select('id, scheduled_date, status, notes, arrived_at')
+      .eq('customer_id', customer.id)
+      .gte('scheduled_date', toLocalDateString(today))
+      .lte('scheduled_date', toLocalDateString(endDate))
+      .neq('status', 'cancelled')
+
+    const existing = (existingData ?? []) as Array<{
+      id: string
+      scheduled_date: string
+      status: string
+      notes: string | null
+      arrived_at: string | null
+    }>
+
+    const existingByDate = new Map(existing.map(e => [e.scheduled_date, e]))
+
+    // 3. Determine which dates need a new insert
+    const seriesId = crypto.randomUUID()
+    const toInsert: object[] = []
 
     for (const dateStr of candidateDates) {
-      // Check if event already exists for this customer on this date
-      const { data: existing } = await supabase
-        .from('clean_events')
-        .select('id')
-        .eq('customer_id', customer.id)
-        .eq('scheduled_date', dateStr)
-        .not('status', 'eq', 'cancelled')
-        .limit(1)
-        .single()
+      const ev = existingByDate.get(dateStr)
 
-      if (existing) {
-        totalSkipped++
+      if (ev) {
+        // Event exists — check if protected
+        const isProtected =
+          ev.status !== 'scheduled' ||
+          (ev.notes !== null && ev.notes.trim() !== '') ||
+          ev.arrived_at !== null
+
+        if (isProtected) {
+          totalProtected++
+        } else {
+          totalSkipped++ // plain scheduled, already exists
+        }
         continue
       }
 
-      // Insert new event
-      const { error: insertErr } = await supabase.from('clean_events').insert({
+      // No event on this date — queue for insert
+      toInsert.push({
         household_id: customer.household_id ?? householdId,
         customer_id: customer.id,
         scheduled_date: dateStr,
@@ -86,9 +130,15 @@ export async function generateRecurringEvents(
         recurrence_series_id: seriesId,
         expected_amount: customer.primary_rate ?? null,
       })
+    }
 
+    // 4. Batch insert
+    if (toInsert.length > 0) {
+      const { error: insertErr } = await supabase.from('clean_events').insert(toInsert)
       if (!insertErr) {
-        totalGenerated++
+        totalGenerated += toInsert.length
+      } else {
+        console.error(`[schedule-generator] Insert failed for ${customer.name}:`, insertErr.message)
       }
     }
   }
@@ -96,22 +146,59 @@ export async function generateRecurringEvents(
   return {
     generated: totalGenerated,
     skipped: totalSkipped,
+    protected: totalProtected,
     customers: customers.length,
   }
 }
 
-// ── Internal helpers ──────────────────────────────────────────────────────────
+// ── Auto-run helper ───────────────────────────────────────────────────────────
 
-function buildCandidateDates(
-  customer: RecurringCustomer,
-  from: Date,
-  to: Date
-): string[] {
+/**
+ * Run the generator silently if it hasn't run in the last AUTO_RUN_INTERVAL_MS.
+ * Safe to call on every page load — throttled by localStorage timestamp.
+ */
+export async function autoGenerateIfStale(
+  supabase: SupabaseClient,
+  householdId: string
+): Promise<void> {
+  const lastRun = localStorage.getItem(LAST_GENERATED_KEY)
+  if (lastRun) {
+    const elapsed = Date.now() - new Date(lastRun).getTime()
+    if (elapsed < AUTO_RUN_INTERVAL_MS) return
+  }
+
+  try {
+    const result = await generateRecurringEvents(supabase, householdId)
+    localStorage.setItem(LAST_GENERATED_KEY, new Date().toISOString())
+    if (result.generated > 0) {
+      console.log(`[schedule-generator] Auto-generated ${result.generated} cleans across ${result.customers} clients`)
+    }
+  } catch (err) {
+    console.error('[schedule-generator] Auto-run failed:', err)
+  }
+}
+
+// ── Exported helper ───────────────────────────────────────────────────────────
+
+/**
+ * Given a list of events for a customer, returns the earliest event date
+ * (from scheduled, arrived, done, or paid events) as an anchor for recurrence_start.
+ */
+export function getAnchorDateFromEvents(customerEvents: CleanEvent[]): string | null {
+  const relevant = customerEvents
+    .filter(e => ['scheduled', 'arrived', 'in_progress', 'done', 'paid'].includes(e.status))
+    .map(e => e.scheduled_date)
+    .sort()
+  return relevant[0] ?? null
+}
+
+// ── Internal date helpers ─────────────────────────────────────────────────────
+
+function buildCandidateDates(customer: RecurringCustomer, from: Date, to: Date): string[] {
   const { recurrence, recurrence_day, recurrence_start } = customer
   const dates: string[] = []
 
   if (recurrence === 'weekly') {
-    // One event per week on recurrence_day (or Monday if not set)
     const dayName = recurrence_day ?? 'monday'
     let cursor = nextDayOfWeek(from, dayName)
     while (cursor <= to) {
@@ -120,13 +207,9 @@ function buildCandidateDates(
     }
 
   } else if (recurrence === 'bi_weekly') {
-    // Every two weeks on recurrence_day
-    // Anchor: recurrence_start if set, otherwise today
+    // recurrence_start is guaranteed non-null here (checked by caller)
     const dayName = recurrence_day ?? 'monday'
-    const anchor = recurrence_start
-      ? parseLocalDate(recurrence_start)
-      : from
-
+    const anchor = parseLocalDate(recurrence_start!)
     let cursor = nextDayOfWeek(from, dayName)
     while (cursor <= to) {
       if (isBiweeklyOn(cursor, anchor)) {
@@ -136,23 +219,15 @@ function buildCandidateDates(
     }
 
   } else if (recurrence === 'monthly') {
-    // One event per month — use day-of-month from recurrence_start, or 1st
-    const dayOfMonth = recurrence_start
-      ? parseLocalDate(recurrence_start).getDate()
-      : 1
-
-    // Walk month by month
+    const dayOfMonth = recurrence_start ? parseLocalDate(recurrence_start).getDate() : 1
     let year = from.getFullYear()
-    let month = from.getMonth() // 0-indexed
-
+    let month = from.getMonth()
     while (true) {
       const daysInMonth = new Date(year, month + 1, 0).getDate()
       const day = Math.min(dayOfMonth, daysInMonth)
       const candidate = new Date(year, month, day)
       if (candidate > to) break
-      if (candidate >= from) {
-        dates.push(toLocalDateString(candidate))
-      }
+      if (candidate >= from) dates.push(toLocalDateString(candidate))
       month++
       if (month > 11) { month = 0; year++ }
     }

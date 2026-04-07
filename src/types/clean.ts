@@ -44,6 +44,7 @@ export interface CleanEvent {
   arrived_at: string | null
   left_at: string | null
   hours_logged: number | null
+  hours_manual_override: boolean | null
   mileage_expense_snapshot: number | null
   notes: string | null
   customer?: CleanCustomer
