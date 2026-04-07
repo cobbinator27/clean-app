@@ -179,6 +179,7 @@ export default function CleanEventSheet({ event, onClose, onUpdate }: Props) {
   // ── Status picker ─────────────────────────────────────────────────────────
 
   async function handleStatusPick(newStatus: EventStatus) {
+    if (!local) return
     if (newStatus === local.status) {
       setShowStatusPicker(false)
       return
