@@ -802,16 +802,6 @@ export default function CleanEventSheet({ event, onClose, onUpdate }: Props) {
             </button>
           )}
 
-          {(local.status === 'done' || local.status === 'payment_pending') && (
-            <button
-              className="w-full h-12 rounded-xl font-semibold text-white text-sm select-none transition-colors"
-              style={{ backgroundColor: btnDarkened ? '#b05e00' : '#D97706' }}
-              {...longPressProps(startPayment)}
-            >
-              Log Payment
-            </button>
-          )}
-
           {/* Reschedule */}
           {local.status === 'scheduled' && rescheduleStep === 'idle' && (
             <button
