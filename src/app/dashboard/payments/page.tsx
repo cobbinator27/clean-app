@@ -7,6 +7,7 @@ import type { CleanEvent, CleanCustomer } from '@/types/clean'
 type PayEvent = CleanEvent & { customer: CleanCustomer }
 type PayStep = 'idle' | 'amount' | 'mismatch' | 'method'
 const PAYMENT_METHODS = ['Venmo', 'Check', 'Cash', 'Other']
+function displayPaymentMethod(m: string): string { return m.charAt(0).toUpperCase() + m.slice(1) }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -198,7 +199,7 @@ function HistoryRow({ event }: { event: PayEvent }) {
       <div className="flex items-center gap-2 shrink-0">
         {event.payment_method && (
           <span className="text-xs font-medium bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">
-            {event.payment_method}
+            {displayPaymentMethod(event.payment_method)}
           </span>
         )}
         {event.payment_date && (
@@ -261,7 +262,7 @@ export default function PaymentsPage() {
   async function handlePaid(id: string, amount: number, method: string) {
     const updates = {
       actual_amount: amount,
-      payment_method: method,
+      payment_method: method.toLowerCase(),
       payment_date: todayDateString(),
       status: 'paid' as const,
     }

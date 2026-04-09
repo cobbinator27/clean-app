@@ -30,6 +30,10 @@ const eventTypeLabels: Record<string, string> = {
 }
 
 const PAYMENT_METHODS = ['Venmo', 'Check', 'Cash', 'Other']
+// DB constraint expects lowercase — always lowercase before saving
+function toDbPaymentMethod(m: string): string { return m.toLowerCase() }
+// Display stored value with first letter capitalized
+function displayPaymentMethod(m: string): string { return m.charAt(0).toUpperCase() + m.slice(1) }
 
 function todayDateString(): string {
   return toLocalDateString(new Date())
@@ -393,7 +397,7 @@ export default function CleanEventSheet({ event, onClose, onUpdate }: Props) {
     setPayLoading(true)
     const payUpdates = {
       actual_amount: parseFloat(payAmount),
-      payment_method: payMethod,
+      payment_method: toDbPaymentMethod(payMethod!),
       payment_date: todayDateString(),
       status: 'paid' as const,
     }
@@ -709,7 +713,7 @@ export default function CleanEventSheet({ event, onClose, onUpdate }: Props) {
                     <p className="text-sm font-bold text-green-700">Paid ✓</p>
                     {local.payment_method && (
                       <p className="text-xs text-green-600 mt-0.5">
-                        via {local.payment_method}
+                        via {displayPaymentMethod(local.payment_method)}
                         {local.payment_date ? ` · ${formatPaymentDate(local.payment_date)}` : ''}
                       </p>
                     )}
