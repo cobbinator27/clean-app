@@ -1,11 +1,12 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
 import type { CleanCustomer, CleanEvent, EventStatus, Recurrence } from '@/types/clean'
 import CleanEventSheet from '@/components/CleanEventSheet'
 import { toLocalDateString, formatDateShort } from '@/lib/date-utils'
+import { generateRecurringEvents } from '@/lib/schedule-generator'
 
 type FullEvent = CleanEvent & { customer: CleanCustomer }
 
@@ -127,6 +128,7 @@ export default function ClientDetailPage() {
   const id = params.id as string
 
   const [customer, setCustomer] = useState<CleanCustomer | null>(null)
+  const [householdId, setHouseholdId] = useState<string | null>(null)
   const [upcoming, setUpcoming] = useState<CleanEvent[]>([])
   const [history, setHistory] = useState<CleanEvent[]>([])
   const [loading, setLoading] = useState(true)
@@ -134,6 +136,10 @@ export default function ClientDetailPage() {
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [selectedEvent, setSelectedEvent] = useState<FullEvent | null>(null)
+  const [lifecycleModal, setLifecycleModal] = useState<'deactivate' | 'reactivate' | null>(null)
+  const [toast, setToast] = useState<string | null>(null)
+  const [lifecycleWorking, setLifecycleWorking] = useState(false)
+  const originalCustomerRef = useRef<CleanCustomer | null>(null)
 
   // Editable fields
   const [name, setName] = useState('')
@@ -167,6 +173,9 @@ export default function ClientDetailPage() {
       if (cx) {
         const c = cx as CleanCustomer
         setCustomer(c)
+        originalCustomerRef.current = c
+        const hid = (cx as CleanCustomer & { household_id?: string }).household_id ?? null
+        setHouseholdId(hid)
         populateForm(c)
       }
       const all = (ev ?? []) as CleanEvent[]
@@ -249,10 +258,76 @@ export default function ClientDetailPage() {
     if (error) { setSaving(false); setSaveError(error.message); return }
 
     const c = saved as CleanCustomer
+    const prevStatus = originalCustomerRef.current?.status
+    originalCustomerRef.current = c
     setCustomer(c)
     populateForm(c)
     setSaving(false)
     setEditing(false)
+
+    if (prevStatus === 'active' && customerStatus === 'inactive') {
+      setLifecycleModal('deactivate')
+    } else if (prevStatus === 'inactive' && customerStatus === 'active') {
+      setLifecycleModal('reactivate')
+    }
+  }
+
+  function showToast(msg: string) {
+    setToast(msg)
+    setTimeout(() => setToast(null), 3500)
+  }
+
+  async function handleRemoveCleans() {
+    setLifecycleModal(null)
+    if (!customer) return
+    setLifecycleWorking(true)
+    const { data, error } = await supabase
+      .from('clean_events')
+      .delete()
+      .eq('customer_id', customer.id)
+      .gte('scheduled_date', todayStr)
+      .eq('status', 'scheduled')
+      .is('arrived_at', null)
+      .is('notes', null)
+      .or('hours_manual_override.is.null,hours_manual_override.eq.false')
+      .select('id')
+    setLifecycleWorking(false)
+    if (error) { console.error('[deactivate] delete failed:', error.message); return }
+    const count = data?.length ?? 0
+    showToast(`Removed ${count} upcoming clean${count !== 1 ? 's' : ''} for ${customer.name}`)
+    // Refresh event lists
+    const { data: ev } = await supabase
+      .from('clean_events')
+      .select('*')
+      .eq('customer_id', id)
+      .order('scheduled_date', { ascending: false })
+      .limit(100)
+    splitEvents((ev ?? []) as CleanEvent[])
+  }
+
+  async function handleGenerateSchedule() {
+    setLifecycleModal(null)
+    if (!customer || !householdId) return
+    setLifecycleWorking(true)
+    try {
+      const result = await generateRecurringEvents(supabase, householdId)
+      const count = result.generated
+      showToast(count > 0
+        ? `Generated ${count} upcoming clean${count !== 1 ? 's' : ''} for ${customer.name}`
+        : 'Schedule is up to date — no new cleans needed'
+      )
+      // Refresh event lists
+      const { data: ev } = await supabase
+        .from('clean_events')
+        .select('*')
+        .eq('customer_id', id)
+        .order('scheduled_date', { ascending: false })
+        .limit(100)
+      splitEvents((ev ?? []) as CleanEvent[])
+    } catch (err) {
+      console.error('[reactivate] generate failed:', err)
+    }
+    setLifecycleWorking(false)
   }
 
   function openEvent(ev: CleanEvent) {
@@ -553,6 +628,79 @@ export default function ClientDetailPage() {
         onClose={() => setSelectedEvent(null)}
         onUpdate={handleEventUpdate}
       />
+
+      {/* Lifecycle modal */}
+      {lifecycleModal && (
+        <>
+          <div
+            className="fixed inset-0 z-50 bg-black/50"
+            onClick={() => setLifecycleModal(null)}
+          />
+          <div className="fixed z-50 inset-x-4 top-1/2 -translate-y-1/2 max-w-sm mx-auto bg-white rounded-2xl shadow-2xl p-6 space-y-4">
+            {lifecycleModal === 'deactivate' ? (
+              <>
+                <div>
+                  <h2 className="text-base font-bold text-gray-900">Remove Upcoming Cleans?</h2>
+                  <p className="text-sm text-gray-600 mt-1.5">
+                    You marked {customer?.name} as inactive. Would you like to remove their upcoming unconfirmed cleans from the schedule?
+                  </p>
+                  <p className="text-xs text-gray-400 mt-2">Completed and paid cleans will be kept for your records.</p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setLifecycleModal(null)}
+                    className="flex-1 h-11 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 bg-white"
+                  >
+                    Keep Cleans
+                  </button>
+                  <button
+                    onClick={handleRemoveCleans}
+                    disabled={lifecycleWorking}
+                    className="flex-1 h-11 rounded-xl text-sm font-semibold text-white disabled:opacity-50"
+                    style={{ backgroundColor: '#DC2626' }}
+                  >
+                    {lifecycleWorking ? 'Removing…' : 'Remove Cleans'}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div>
+                  <h2 className="text-base font-bold text-gray-900">Rebuild Schedule?</h2>
+                  <p className="text-sm text-gray-600 mt-1.5">
+                    {customer?.name} is now active again. Would you like to generate their upcoming cleans based on their recurring schedule?
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setLifecycleModal(null)}
+                    className="flex-1 h-11 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 bg-white"
+                  >
+                    Skip
+                  </button>
+                  <button
+                    onClick={handleGenerateSchedule}
+                    disabled={lifecycleWorking}
+                    className="flex-1 h-11 rounded-xl text-sm font-semibold text-white disabled:opacity-50"
+                    style={{ backgroundColor: '#0E9F8E' }}
+                  >
+                    {lifecycleWorking ? 'Generating…' : 'Generate Schedule'}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* Toast */}
+      {toast && (
+        <div className="fixed bottom-28 inset-x-4 z-60 max-w-sm mx-auto">
+          <div className="bg-gray-900 text-white text-sm font-medium px-4 py-3 rounded-xl shadow-lg text-center">
+            {toast}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
