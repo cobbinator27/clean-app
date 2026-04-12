@@ -55,6 +55,7 @@ export interface CleanBusinessSettings {
   household_id: string
   sb_income_category_id: string
   sb_expense_category_id: string
+  sb_supplies_category_id: string | null
   mileage_rate: number
   flat_expense_per_clean: number
   hourly_rate: number
@@ -72,12 +73,14 @@ export interface CleanMonthlyFinancials {
   expected_income: number
   total_mileage_expense: number
   total_flat_expense: number
-  gross_wages: number                 // estimated payroll = hours × rate × overhead
-  payroll_withdrawal: number | null   // actual payroll — entered at month-end
-  payroll_deposit: number | null
-  income_as_profit: number
-  tax_reserve: number
-  net_to_household: number            // THE pacing number SB reads
+  gross_wages: number                 // hours × hourly_rate (pure labor)
+  payroll_withdrawal: number | null   // gross_wages × overhead (total payroll cost out)
+  payroll_deposit: number | null      // gross_wages × 0.9235 (what Julie receives)
+  sb_expenses_total: number           // SB Business Expenses + Cleaning Supplies
+  income_as_profit: number            // gross - payroll_withdrawal - mileage - sb_expenses
+  tax_reserve: number                 // income_as_profit × 22%
+  transfer_to_bank: number            // tax_reserve + payroll_withdrawal
+  net_to_household: number            // gross - transfer_to_bank + payroll_deposit
   total_hours: number
   payroll_submitted: boolean
   payroll_submitted_at: string | null

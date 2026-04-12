@@ -1,6 +1,10 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { CleanBusinessSettings, CleanMonthlyFinancials } from '@/types/clean'
 
+// ── Constants ───────────────────────────────────────────────────────────────
+
+const EMPLOYEE_DEDUCTION_RATE = 0.0765 // FICA 6.2% + Medicare 1.45%
+
 // ── Settings cache ───────────────────────────────────────────────────────────
 
 let cachedSettings: CleanBusinessSettings | null = null
@@ -113,7 +117,33 @@ export async function recalculatePacing(
     }
   }
 
-  // 5. Calculate totals
+  // 5. Load SB expenses for the month (Business Expenses + Cleaning Supplies)
+  const sbExpenseCategoryIds = [
+    settings.sb_expense_category_id,
+    settings.sb_supplies_category_id,
+  ].filter(Boolean) as string[]
+
+  let sbExpensesTotal = 0
+  if (sbExpenseCategoryIds.length > 0) {
+    const { data: txData, error: txErr } = await supabase
+      .from('transactions')
+      .select('amount')
+      .eq('household_id', householdId)
+      .eq('month_key', monthKey)
+      .eq('direction', 'Spend')
+      .is('deleted_at', null)
+      .in('category_id', sbExpenseCategoryIds)
+
+    if (txErr) {
+      console.error('[pacing] Failed to load SB expenses:', txErr.message)
+    } else {
+      for (const tx of txData ?? []) {
+        sbExpensesTotal += tx.amount ?? 0
+      }
+    }
+  }
+
+  // 6. Calculate totals from events
   let grossIncome = 0
   let expectedIncome = 0
   let totalHours = 0
@@ -142,14 +172,18 @@ export async function recalculatePacing(
     totalMileage += mileage
   }
 
-  const grossWages = totalHours * settings.hourly_rate * settings.payroll_overhead_factor
+  // 7. Apply formulas
+  const grossWages = totalHours * settings.hourly_rate
+  const payrollWithdrawal = grossWages * settings.payroll_overhead_factor
+  const payrollDeposit = grossWages * (1 - EMPLOYEE_DEDUCTION_RATE)
   const flatExpense = events.length * settings.flat_expense_per_clean
-  const taxableIncome = grossIncome - totalMileage
-  const taxReserve = taxableIncome * settings.tax_reserve_pct
-  const incomeAsProfit = grossIncome - grossWages - totalMileage - flatExpense
-  const netToHousehold = grossIncome - grossWages - taxReserve
+  const totalExpenses = totalMileage + sbExpensesTotal + flatExpense
+  const incomeAsProfit = grossIncome - payrollWithdrawal - totalExpenses
+  const taxReserve = incomeAsProfit * settings.tax_reserve_pct
+  const transferToBank = taxReserve + payrollWithdrawal
+  const netToHousehold = grossIncome - transferToBank + payrollDeposit
 
-  // 6. Upsert into clean_monthly_financials
+  // 8. Upsert into clean_monthly_financials
   const row = {
     household_id: householdId,
     month_key: monthKey,
@@ -158,8 +192,12 @@ export async function recalculatePacing(
     total_mileage_expense: round2(totalMileage),
     total_flat_expense: round2(flatExpense),
     gross_wages: round2(grossWages),
+    payroll_withdrawal: round2(payrollWithdrawal),
+    payroll_deposit: round2(payrollDeposit),
+    sb_expenses_total: round2(sbExpensesTotal),
     income_as_profit: round2(incomeAsProfit),
     tax_reserve: round2(taxReserve),
+    transfer_to_bank: round2(transferToBank),
     net_to_household: round2(netToHousehold),
     total_hours: round2(totalHours),
   }

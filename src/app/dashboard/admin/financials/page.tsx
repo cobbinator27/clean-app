@@ -4,7 +4,6 @@ import { useCallback, useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase'
 import type { CleanBusinessSettings, CleanMonthlyFinancials } from '@/types/clean'
 import { recalculatePacing, fetchBusinessSettings } from '@/lib/pacing'
-import { toLocalDateString } from '@/lib/date-utils'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -54,7 +53,8 @@ export default function AdminFinancialsPage() {
   const [settings, setSettings] = useState<CleanBusinessSettings | null>(null)
   const [eventSummary, setEventSummary] = useState<EventSummary | null>(null)
   const [loading, setLoading] = useState(true)
-  const [payrollInput, setPayrollInput] = useState('')
+  const [withdrawalInput, setWithdrawalInput] = useState('')
+  const [depositInput, setDepositInput] = useState('')
   const [finalizing, setFinalizing] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
 
@@ -131,11 +131,22 @@ export default function AdminFinancialsPage() {
       setEventSummary(summary)
     }
 
-    // Prefill payroll input from existing actual
-    if (fin && (fin as CleanMonthlyFinancials).payroll_withdrawal != null) {
-      setPayrollInput(String((fin as CleanMonthlyFinancials).payroll_withdrawal))
+    // Prefill finalization inputs from existing actuals
+    if (fin) {
+      const f = fin as CleanMonthlyFinancials
+      if (f.finalized && f.payroll_withdrawal != null) {
+        setWithdrawalInput(String(f.payroll_withdrawal))
+      } else {
+        setWithdrawalInput('')
+      }
+      if (f.finalized && f.payroll_deposit != null) {
+        setDepositInput(String(f.payroll_deposit))
+      } else {
+        setDepositInput('')
+      }
     } else {
-      setPayrollInput('')
+      setWithdrawalInput('')
+      setDepositInput('')
     }
 
     setLoading(false)
@@ -147,26 +158,29 @@ export default function AdminFinancialsPage() {
 
   // Finalize month
   async function handleFinalize() {
-    if (!householdId || !financials) return
+    if (!householdId || !financials || !settings) return
     setFinalizing(true)
 
-    const actualPayroll = payrollInput ? parseFloat(payrollInput) : null
+    const actualWithdrawal = withdrawalInput ? parseFloat(withdrawalInput) : financials.payroll_withdrawal
+    const actualDeposit = depositInput ? parseFloat(depositInput) : financials.payroll_deposit
 
-    // Recalculate with actual payroll
+    // Recalculate with actual payroll numbers
     const gross = financials.gross_income
-    const mileage = financials.total_mileage_expense
-    const payroll = actualPayroll ?? financials.gross_wages
-    const taxableIncome = gross - mileage
-    const taxReserve = Math.round(taxableIncome * (settings?.tax_reserve_pct ?? 0.22) * 100) / 100
-    const finalNet = Math.round((gross - payroll - taxReserve) * 100) / 100
+    const totalExpenses = financials.total_mileage_expense + financials.sb_expenses_total + financials.total_flat_expense
+    const incomeAsProfit = gross - (actualWithdrawal ?? 0) - totalExpenses
+    const taxReserve = Math.round(incomeAsProfit * settings.tax_reserve_pct * 100) / 100
+    const transferToBank = taxReserve + (actualWithdrawal ?? 0)
+    const netToHousehold = Math.round((gross - transferToBank + (actualDeposit ?? 0)) * 100) / 100
 
     const { error } = await supabase
       .from('clean_monthly_financials')
       .update({
-        payroll_withdrawal: actualPayroll,
-        gross_wages: payroll,
+        payroll_withdrawal: actualWithdrawal,
+        payroll_deposit: actualDeposit,
+        income_as_profit: Math.round(incomeAsProfit * 100) / 100,
         tax_reserve: taxReserve,
-        net_to_household: finalNet,
+        transfer_to_bank: Math.round(transferToBank * 100) / 100,
+        net_to_household: netToHousehold,
         finalized: true,
         finalized_at: new Date().toISOString(),
       })
@@ -188,13 +202,29 @@ export default function AdminFinancialsPage() {
       .from('clean_monthly_financials')
       .update({ finalized: false, finalized_at: null })
       .eq('id', financials.id)
-    showToast('Month un-finalized')
+    showToast('Month un-finalized — recalculating...')
     loadData()
   }
 
+  // Load category target from SB monthly_budgets
+  const [categoryTarget, setCategoryTarget] = useState<number>(0)
+  useEffect(() => {
+    if (!householdId || !settings?.sb_income_category_id) return
+    async function loadTarget() {
+      const { data } = await supabase
+        .from('monthly_budgets')
+        .select('target_amount')
+        .eq('category_id', settings!.sb_income_category_id)
+        .eq('month_key', monthKey)
+        .maybeSingle()
+      setCategoryTarget(data?.target_amount ?? 0)
+    }
+    loadTarget()
+  }, [householdId, monthKey, settings?.sb_income_category_id])
+
   // ── Derived values ─────────────────────────────────────────────────────────
 
-  const target = settings?.monthly_takehome_target ?? 0
+  const target = categoryTarget
   const pacing = financials?.net_to_household ?? 0
   const vsTarget = pacing - target
   const isFinalized = financials?.finalized ?? false
@@ -250,7 +280,7 @@ export default function AdminFinancialsPage() {
       ) : (
         <div className="px-4 pt-4 space-y-4">
 
-          {/* Pacing net — hero card */}
+          {/* Net to household — hero card */}
           <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 text-center">
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-1">
               {isFinalized ? 'Final Net' : 'Pacing Net'}
@@ -264,12 +294,60 @@ export default function AdminFinancialsPage() {
             </div>
           </div>
 
-          {/* Breakdown cards */}
+          {/* Revenue & Payroll */}
           <div className="grid grid-cols-2 gap-3">
             <Card label="Gross Income" value={fmt(financials.gross_income)} />
-            <Card label="Est. Payroll" value={fmt(financials.payroll_withdrawal ?? financials.gross_wages)} sub={financials.payroll_withdrawal != null ? 'Actual' : 'Estimated'} />
-            <Card label="Mileage" value={fmt(financials.total_mileage_expense)} />
-            <Card label="Tax Reserve" value={fmt(financials.tax_reserve)} sub={`${((settings?.tax_reserve_pct ?? 0.22) * 100).toFixed(0)}%`} />
+            <Card label="Gross Wages" value={fmt(financials.gross_wages)} sub={`${financials.total_hours}hrs × $${settings?.hourly_rate ?? 20}`} />
+            <Card label="Payroll Withdrawal" value={fmt(financials.payroll_withdrawal)} sub={isFinalized ? 'Actual' : 'Estimated'} />
+            <Card label="Payroll Deposit" value={fmt(financials.payroll_deposit)} sub={isFinalized ? 'Actual' : 'Estimated'} />
+          </div>
+
+          {/* Expenses & Deductions */}
+          <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Expenses & Deductions</p>
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-gray-500">Mileage</span>
+                <span className="font-medium">{fmt(financials.total_mileage_expense)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">SB Expenses</span>
+                <span className="font-medium">{fmt(financials.sb_expenses_total)}</span>
+              </div>
+              {financials.total_flat_expense > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Flat Per-Clean</span>
+                  <span className="font-medium">{fmt(financials.total_flat_expense)}</span>
+                </div>
+              )}
+              <div className="flex justify-between pt-2 border-t border-gray-100">
+                <span className="text-gray-600 font-medium">Total Expenses</span>
+                <span className="font-semibold">{fmt(
+                  (financials.total_mileage_expense ?? 0) +
+                  (financials.sb_expenses_total ?? 0) +
+                  (financials.total_flat_expense ?? 0)
+                )}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Tax & Transfer */}
+          <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Tax & Transfer</p>
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-gray-500">Income as Profit</span>
+                <span className="font-medium">{fmt(financials.income_as_profit)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Tax Reserve ({((settings?.tax_reserve_pct ?? 0.22) * 100).toFixed(0)}%)</span>
+                <span className="font-medium">{fmt(financials.tax_reserve)}</span>
+              </div>
+              <div className="flex justify-between pt-2 border-t border-gray-100">
+                <span className="text-gray-600 font-medium">Transfer to Bank</span>
+                <span className="font-semibold text-amber-600">{fmt(financials.transfer_to_bank)}</span>
+              </div>
+            </div>
           </div>
 
           {/* Event breakdown */}
@@ -295,13 +373,22 @@ export default function AdminFinancialsPage() {
 
             {!isFinalized ? (
               <>
-                <label className="block text-sm text-gray-600 mb-1">Actual Payroll Amount</label>
+                <label className="block text-sm text-gray-600 mb-1">Actual Payroll Withdrawal</label>
                 <input
                   type="number"
                   inputMode="decimal"
-                  placeholder="Enter actual payroll..."
-                  value={payrollInput}
-                  onChange={e => setPayrollInput(e.target.value)}
+                  placeholder={financials.payroll_withdrawal != null ? `Estimated: ${fmt(financials.payroll_withdrawal)}` : 'Enter actual withdrawal...'}
+                  value={withdrawalInput}
+                  onChange={e => setWithdrawalInput(e.target.value)}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-[#2C5F8A]/30"
+                />
+                <label className="block text-sm text-gray-600 mb-1">Actual Payroll Deposit</label>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  placeholder={financials.payroll_deposit != null ? `Estimated: ${fmt(financials.payroll_deposit)}` : 'Enter actual deposit...'}
+                  value={depositInput}
+                  onChange={e => setDepositInput(e.target.value)}
                   className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-[#2C5F8A]/30"
                 />
                 <button
@@ -316,8 +403,12 @@ export default function AdminFinancialsPage() {
             ) : (
               <div className="space-y-3">
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">Actual Payroll</span>
+                  <span className="text-gray-500">Payroll Withdrawal</span>
                   <span className="font-medium">{fmt(financials.payroll_withdrawal)}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-500">Payroll Deposit</span>
+                  <span className="font-medium">{fmt(financials.payroll_deposit)}</span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-500">Finalized</span>
