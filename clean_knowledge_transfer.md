@@ -101,8 +101,10 @@ The app is live and in active development. Julie is beginning to use it as the p
 | Tax reserve % | 22% of profit — adjustable |
 | Monthly gross target | $3,500 |
 | Monthly take-home target | $2,900 |
+| Employee deduction rate | 7.65% (FICA 6.2% + Medicare 1.45%) |
 | SB Income category ID | `149cfb77-1d17-4e46-8070-683e5a4e813f` (Cleaning Income) |
 | SB Expense category ID | `112c21b2-d6ac-45f3-b831-9f1bb5097e33` (clean. Business Expenses) |
+| SB Supplies category ID | `5ccfe7a4-e80b-48e0-9fb2-3afee4ea3058` (Cleaning Supplies) |
 
 ### 3.5 Compliance Items (Pre-Seeded)
 
@@ -212,24 +214,29 @@ All previously queued prompts (17, 18, 9a, 9) have been completed.
 
 ### V1.5 — Simple Budgets Integration
 
-Both apps share the same Supabase project. clean. maintains a **pacing net** number in `clean_monthly_financials` that SB reads directly — no per-payment transactions are synced. The pacing number = gross income minus estimated payroll, tax reserve, and mileage. It updates in real time on every schedule change and becomes finalized after Daniel runs payroll.
+Both apps share the same Supabase project. clean. maintains a **net_to_household** number in `clean_monthly_financials` that SB reads directly — no per-payment transactions are synced. This number updates in real time on every schedule change and becomes finalized after Daniel runs payroll at month-end.
+
+**Integration is bidirectional:**
+- clean. → SB: `net_to_household` feeds the Cleaning Income category's "actual" amount
+- SB → clean.: Pacing engine pulls expense totals from SB's `transactions` table (Business Expenses + Cleaning Supplies categories)
 
 | Feature | Status | Notes |
 |---|---|---|
-| Pacing engine (`src/lib/pacing.ts`) | ✅ Built | `recalculatePacing()` computes gross/payroll/mileage/tax/net, upserts to `clean_monthly_financials` |
+| Pacing engine (`src/lib/pacing.ts`) | ✅ Built | `recalculatePacing()` computes full financial breakdown, upserts to `clean_monthly_financials` |
 | Real-time pacing updates | ✅ Built | Fires on every event mutation: payment, cancel, reschedule, add, schedule generation, deactivation |
-| Admin financials page | ✅ Built | `/dashboard/admin/financials` — month nav, breakdown cards, event counts, finalization |
-| Month-end finalize | ✅ Built | Enter actual payroll → finalize → locks month, pacing becomes actual |
-| SB Dashboard reads pacing | 📋 Pending | SB needs small change: read `pacing_net` from `clean_monthly_financials` for Cleaning Income category |
-| Phase out flat expense | 📋 Pending | Set `flat_expense_per_clean` to $0 once integration verified |
-| SQL prerequisites | 📋 Pending | Verify/create columns on `clean_monthly_financials` table |
-| SB category IDs | ✅ Already configured in business settings |
+| Admin financials page | ✅ Built | `/dashboard/admin/financials` — month nav, full breakdown, event counts, finalization |
+| Month-end finalize | ✅ Built | Enter actual payroll withdrawal + deposit → finalize → locks month |
+| SB Dashboard reads pacing | ✅ Built | SB reads `net_to_household` from `clean_monthly_financials` for Cleaning Income category |
+| SB expense pull | ✅ Built | Pacing queries SB `transactions` for Business Expenses + Cleaning Supplies categories |
+| SQL prerequisites | ✅ Done | All columns verified and created |
+| SB category IDs | ✅ Configured | Income, Business Expenses, and Cleaning Supplies categories linked |
 
 **Architecture:**
 - clean. owns all business finances: gross, mileage, tax reserves, payroll estimates
-- SB only sees the net income number (pacing during month, finalized after payroll)
+- SB provides expense data (recurring business expenses + cleaning supplies)
+- SB reads the net income number (pacing during month, finalized after payroll)
 - No individual payment transactions flow to SB — cleaner separation
-- `clean_monthly_financials.pacing_net` is the bridge field SB reads
+- `clean_monthly_financials.net_to_household` is the bridge field SB reads
 
 ### V2 — Payments + Customer Portal
 
@@ -258,23 +265,36 @@ Both apps share the same Supabase project. clean. maintains a **pacing net** num
 | | Formula |
 |---|---|
 | Mileage expense | `one_way_miles × 2 × $0.725` — snapshotted at clean creation |
-| Flat expense | $5.00 per clean (optional, phase out post V1.5) |
-| Payroll cost (est.) | `hours_logged × $20 × 1.08 overhead` |
-| Tax reserve (est.) | `payment_amount × 0.22` |
-| Estimated net | `payment - payroll_cost - tax_reserve` — synced to Simple Budgets |
+| Flat expense | $5.00 per clean (optional) |
+| Estimated hours | Tier: `<$150 = 1.5h`, `<$175 = 2h`, `$175+ = 3h` — replaced by actual `hours_logged` when available |
 
-### 8.2 Monthly Summary Formula
+### 8.2 Monthly Pacing Formula
 
 | | Formula |
 |---|---|
-| Gross Income | Sum of `actual_amount` where `status = 'paid'` in the month |
-| Total Mileage Expense | Sum of `mileage_expense_snapshot` for all cleans in month |
-| Payroll Withdrawal | Entered manually from payroll company (actual debit) |
-| Income as Profit | `Gross - Payroll Withdrawal - Mileage - Flat Expenses` |
+| Gross Income | Sum of `actual_amount` (if paid) or `expected_amount` for all non-cancelled events |
+| Gross Wages | `total_hours × $20/hr` (pure labor, no overhead) |
+| Payroll Withdrawal | `Gross Wages × 1.08` (employer taxes: FICA + Medicare + FUTA) — estimated during month, actual at finalization |
+| Payroll Deposit | `Gross Wages × 0.9235` (after 7.65% employee FICA/Medicare) — estimated during month, actual at finalization |
+| Total Expenses | Mileage + SB Business Expenses + SB Cleaning Supplies + Flat Per-Clean |
+| Income as Profit | `Gross Income - Payroll Withdrawal - Total Expenses` |
 | Tax Reserve (22%) | `Income as Profit × 0.22` |
-| Net to Household | `Income as Profit - Tax Reserve` |
-| Julie's Total Income | `Net + Payroll Deposit + Expenses Reimbursed` |
-| Pacing to Budget | `Gross Income - $3,500 monthly target` |
+| Transfer to Bank | `Tax Reserve + Payroll Withdrawal` (what Daniel moves to separate account) |
+| Net to Household | `Gross Income - Transfer to Bank + Payroll Deposit` (THE pacing number SB reads) |
+
+### 8.3 March 2026 Example (Verified Against Actual Payroll)
+
+| | Amount |
+|---|---|
+| Gross Income | $3,160.00 |
+| Gross Wages (40.5 hrs × $20) | $810.00 |
+| Payroll Withdrawal ($810 × 1.08) | $876.82 |
+| Payroll Deposit (Julie's take-home) | $748.04 |
+| Total Expenses (mileage + SB) | $620.00 |
+| Income as Profit | $1,663.18 |
+| Tax Reserve (22%) | $365.90 |
+| Transfer to Bank | $1,242.72 |
+| Net to Household | ~$2,665 |
 
 ---
 
@@ -361,14 +381,16 @@ const householdId = member.household_id
 
 The V1.5 integration uses a **pacing model** — NOT per-payment transaction sync:
 
-- `src/lib/pacing.ts` contains `recalculatePacing()` — queries all non-cancelled events for a month, computes net income, upserts to `clean_monthly_financials`
-- The `pacing_net` field in `clean_monthly_financials` is THE number SB reads
+- `src/lib/pacing.ts` contains `recalculatePacing()` — queries all non-cancelled events for a month, pulls SB expenses, computes full financial breakdown, upserts to `clean_monthly_financials`
+- The `net_to_household` field in `clean_monthly_financials` is THE number SB reads
 - Business settings are cached with 5-min TTL via `fetchBusinessSettings()`
 - Finalized months are locked — `recalculatePacing()` skips them
 - Admin page at `/dashboard/admin/financials` (no nav entry — Daniel navigates directly)
 - Estimated hours use tier: `<$150 = 1.5h`, `<$175 = 2h`, `$175+ = 3h`
-- Pacing formula: `Gross - EstPayroll - EstTaxReserve = PacingNet`
-- Tax reserve applies to taxable income: `(Gross - Mileage) × tax_reserve_pct`
+- Pacing formula: `Net = Gross - (TaxReserve + PayrollWithdrawal) + PayrollDeposit`
+- Tax reserve applies to income as profit: `(Gross - PayrollWithdrawal - AllExpenses) × tax_reserve_pct`
+- SB expenses (Business Expenses + Cleaning Supplies categories) are pulled from SB `transactions` table each recalculation
+- Admin page target pulls from SB `monthly_budgets` for the Cleaning Income category, not from static business settings
 
 ---
 
