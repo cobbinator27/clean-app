@@ -7,6 +7,7 @@ import type { CleanCustomer, CleanEvent, EventStatus, Recurrence } from '@/types
 import CleanEventSheet from '@/components/CleanEventSheet'
 import { toLocalDateString, formatDateShort } from '@/lib/date-utils'
 import { generateRecurringEvents } from '@/lib/schedule-generator'
+import { recalculatePacing } from '@/lib/pacing'
 
 type FullEvent = CleanEvent & { customer: CleanCustomer }
 
@@ -295,6 +296,11 @@ export default function ClientDetailPage() {
     if (error) { console.error('[deactivate] delete failed:', error.message); return }
     const count = data?.length ?? 0
     showToast(`Removed ${count} upcoming clean${count !== 1 ? 's' : ''} for ${customer.name}`)
+    // Recalculate pacing for current and upcoming months
+    if (count > 0 && householdId) {
+      const currentMonth = todayStr.substring(0, 7)
+      recalculatePacing(supabase, householdId, currentMonth).catch(console.error)
+    }
     // Refresh event lists
     const { data: ev } = await supabase
       .from('clean_events')
@@ -625,6 +631,7 @@ export default function ClientDetailPage() {
       {/* Event sheet */}
       <CleanEventSheet
         event={selectedEvent}
+        householdId={householdId}
         onClose={() => setSelectedEvent(null)}
         onUpdate={handleEventUpdate}
       />

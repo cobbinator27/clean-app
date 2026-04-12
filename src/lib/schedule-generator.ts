@@ -6,6 +6,7 @@ import {
   nextDayOfWeek,
   isBiweeklyOn,
 } from './date-utils'
+import { recalculatePacing } from './pacing'
 
 const WEEKS_AHEAD = 10
 const AUTO_RUN_INTERVAL_MS = 6 * 60 * 60 * 1000 // 6 hours
@@ -143,6 +144,20 @@ export async function generateRecurringEvents(
       } else {
         console.error(`[schedule-generator] Insert failed for ${customer.name}:`, insertErr.message)
       }
+    }
+  }
+
+  // Recalculate pacing for all affected months
+  if (totalGenerated > 0) {
+    const affectedMonths = new Set<string>()
+    const cursor = new Date(today)
+    while (cursor <= endDate) {
+      affectedMonths.add(toLocalDateString(cursor).substring(0, 7))
+      cursor.setMonth(cursor.getMonth() + 1)
+      cursor.setDate(1)
+    }
+    for (const monthKey of affectedMonths) {
+      recalculatePacing(supabase, householdId, monthKey).catch(console.error)
     }
   }
 

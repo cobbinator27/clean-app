@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase'
 import type { CleanEvent, CleanCustomer } from '@/types/clean'
+import { recalculatePacing } from '@/lib/pacing'
 
 type PayEvent = CleanEvent & { customer: CleanCustomer }
 type PayStep = 'idle' | 'amount' | 'mismatch' | 'method'
@@ -273,7 +274,11 @@ export default function PaymentsPage() {
       setOutstanding(prev => prev.filter(e => e.id !== id))
       setHistory(prev => [updated, ...prev].slice(0, 30))
     }
-    await supabase.from('clean_events').update(updates).eq('id', id)
+    const { error } = await supabase.from('clean_events').update(updates).eq('id', id)
+    if (!error && householdId && event) {
+      const monthKey = event.scheduled_date.substring(0, 7)
+      recalculatePacing(supabase, householdId, monthKey).catch(console.error)
+    }
   }
 
   // Running total of outstanding

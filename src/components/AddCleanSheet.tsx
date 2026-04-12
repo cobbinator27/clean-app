@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase'
 import type { CleanCustomer, EventType } from '@/types/clean'
+import { recalculatePacing } from '@/lib/pacing'
 
 const EVENT_TYPES: { value: EventType; label: string }[] = [
   { value: 'regular',    label: 'Regular' },
@@ -100,6 +101,8 @@ export default function AddCleanSheet({ householdId, customers, onClose, onCreat
     setSaving(false)
     if (err) { setError(err.message); return }
 
+    const monthKey = date.substring(0, 7)
+    recalculatePacing(supabase, householdId, monthKey).catch(console.error)
     onCreated(date, selectedCustomer.name)
   }
 

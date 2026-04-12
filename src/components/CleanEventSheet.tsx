@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase'
 import type { CleanEvent, CleanCustomer, EventStatus } from '@/types/clean'
 import { formatTime, formatDateLong, formatPaymentDate, toLocalDateString } from '@/lib/date-utils'
+import { recalculatePacing } from '@/lib/pacing'
 import StatusPicker from '@/components/StatusPicker'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -109,11 +110,12 @@ type PayStep = 'idle' | 'amount' | 'mismatch' | 'method'
 
 interface Props {
   event: FullEvent | null
+  householdId: string | null
   onClose: () => void
   onUpdate: (updated: CleanEvent) => void
 }
 
-export default function CleanEventSheet({ event, onClose, onUpdate }: Props) {
+export default function CleanEventSheet({ event, householdId, onClose, onUpdate }: Props) {
   const supabase = createClient()
 
   // Sheet animation
@@ -192,6 +194,15 @@ export default function CleanEventSheet({ event, onClose, onUpdate }: Props) {
   const sc = statusConfig[local.status]
   const customer = local.customer
 
+  // ── Pacing helper ─────────────────────────────────────────────────────────
+
+  function triggerPacing(scheduledDate?: string) {
+    const date = scheduledDate ?? local?.scheduled_date
+    if (!householdId || !date) return
+    const monthKey = date.substring(0, 7)
+    recalculatePacing(supabase, householdId, monthKey).catch(console.error)
+  }
+
   // ── Core patch ────────────────────────────────────────────────────────────
 
   async function patch(updates: Partial<CleanEvent>) {
@@ -200,6 +211,7 @@ export default function CleanEventSheet({ event, onClose, onUpdate }: Props) {
     onUpdate(updated)
     const { error } = await supabase.from('clean_events').update(updates).eq('id', local!.id)
     if (error) console.error('[CleanEventSheet] patch failed:', error.message, '| updates:', updates)
+    else triggerPacing()
   }
 
   // ── Long press logic ──────────────────────────────────────────────────────
@@ -410,6 +422,7 @@ export default function CleanEventSheet({ event, onClose, onUpdate }: Props) {
       const updated = { ...local!, ...payUpdates }
       setLocal(updated)
       onUpdate(updated)
+      triggerPacing()
     }
     setPayStep('idle')
     setPayLoading(false)
@@ -441,6 +454,7 @@ export default function CleanEventSheet({ event, onClose, onUpdate }: Props) {
   async function handleRescheduleAllFuture() {
     if (!local) return
     setRescheduleLoading(true)
+    const oldDate = local.scheduled_date
     const newDayOfWeek = getDayName(rescheduleDate)
     const customerId = local.customer_id
 
@@ -458,7 +472,11 @@ export default function CleanEventSheet({ event, onClose, onUpdate }: Props) {
       .is('notes', null)
       .neq('id', local.id)
 
+    // patch triggers pacing for the new month; also recalc old month if different
     await patch({ scheduled_date: rescheduleDate })
+    const oldMonth = oldDate.substring(0, 7)
+    const newMonth = rescheduleDate.substring(0, 7)
+    if (oldMonth !== newMonth) triggerPacing(oldDate)
     setRescheduleStep('idle')
     setRescheduleLoading(false)
     onClose()
