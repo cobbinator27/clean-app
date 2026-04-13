@@ -15,7 +15,7 @@ The app is live and in active development. Julie is beginning to use it as the p
 
 | Surface | Description |
 |---|---|
-| **Public Website** | Replaces WordPress at spokane-clean.com. SEO-optimized, customer-facing. Includes quote/lead capture form. Not yet built — currently redirects to login. |
+| **Public Website** | Replaces WordPress at spokane-clean.com. SEO-optimized, customer-facing. Includes quote/lead capture form. BUILT — homepage, services, about, contact pages. Route group `(public)` with Header/Footer layout. JSON-LD schema, DM Serif Display heading font. Quote form → `clean_leads` table via server action. Google Voice (509) 720-8067. |
 | **Cleaner Portal** | Julie's mobile-first daily app. Schedule view, client management, time tracking, payment logging. BUILT — actively being refined. |
 | **Admin Portal** | Daniel's financial dashboard. Income summary, payroll export, tax tracker, compliance calendar, business settings. PARTIALLY BUILT. |
 
@@ -201,7 +201,7 @@ All previously queued prompts (17, 18, 9a, 9) have been completed.
 
 | Feature | Notes |
 |---|---|
-| Public website | Replaces WordPress. Home, Services, About, Contact, Quote form. SEO schema baked in. Deer Park page priority. |
+| ~~Public website~~ | ✅ BUILT. Home, Services, About, Contact/Quote form. JSON-LD schema, DM Serif Display font, route groups. Needs: RLS policy for anonymous lead inserts, Deer Park area page (V3), domain DNS migration. |
 | Lead management | Quote form → Lead record → Pipeline (New/Contacted/Quoted/Won/Lost) → Convert to Client |
 | Admin financial dashboard | Monthly gross, payroll cost, mileage expenses, profit, tax reserve, take-home. Mirrors existing spreadsheet formulas. |
 | Payroll export | Monthly hours CSV for payroll company. Mark month as submitted. |
@@ -209,7 +209,7 @@ All previously queued prompts (17, 18, 9a, 9) have been completed.
 | Business settings UI | Editable rates, targets, home base address, mileage rate, SB category IDs. |
 | Google Calendar iCal feed | Read-only feed URL Julie adds to Google Calendar for visibility. |
 | Mileage auto-calculation | Google Maps Distance Matrix API — calculates one_way_miles when address saved. |
-| Domain migration | Move spokane-clean.com DNS from Bluehost to Vercel. Drop WordPress. |
+| Domain migration | Move spokane-clean.com DNS from Bluehost to Vercel. Drop WordPress. Public site is built and deployed — just needs DNS cutover. |
 | Julie onboarding | Walk Julie through the app, train on daily workflow, get her off Jotform. |
 
 ### V1.5 — Simple Budgets Integration
