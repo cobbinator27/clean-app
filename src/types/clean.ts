@@ -11,6 +11,27 @@ export type EventType = 'regular' | 'one_off' | 'move_out' | 'deep_clean' | 'oth
 
 export type Recurrence = 'weekly' | 'biweekly' | 'monthly' | null
 
+export type LeadStatus = 'new' | 'contacted' | 'quoted' | 'won' | 'lost'
+
+export interface CleanLead {
+  id: string
+  household_id: string
+  name: string
+  phone: string | null
+  email: string | null
+  address: string | null
+  home_type: string | null
+  frequency_interest: string | null
+  heard_from: string | null
+  notes: string | null
+  status: LeadStatus
+  lost_reason: string | null
+  converted_at: string | null
+  converted_to: string | null
+  created_at: string
+  updated_at: string
+}
+
 export interface CleanCustomer {
   id: string
   name: string

@@ -23,24 +23,32 @@ interface Props {
   householdId: string
   onClose: () => void
   onCreated: (customer: CleanCustomer) => void
+  initial?: {
+    name?: string
+    email?: string
+    phone?: string
+    address?: string
+    notes?: string
+  }
+  leadId?: string
 }
 
-export default function AddCustomerSheet({ householdId, onClose, onCreated }: Props) {
+export default function AddCustomerSheet({ householdId, onClose, onCreated, initial, leadId }: Props) {
   const supabase = createClient()
   const [visible, setVisible] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const [name, setName] = useState('')
-  const [address, setAddress] = useState('')
+  const [name, setName] = useState(initial?.name ?? '')
+  const [address, setAddress] = useState(initial?.address ?? '')
   const [area, setArea] = useState('')
-  const [phone, setPhone] = useState('')
-  const [email, setEmail] = useState('')
+  const [phone, setPhone] = useState(initial?.phone ?? '')
+  const [email, setEmail] = useState(initial?.email ?? '')
   const [primaryRate, setPrimaryRate] = useState('')
   const [recurrence, setRecurrence] = useState<Recurrence>(null)
   const [recurrenceDay, setRecurrenceDay] = useState<string | null>(null)
   const [recurrenceStart, setRecurrenceStart] = useState('')
-  const [notes, setNotes] = useState('')
+  const [notes, setNotes] = useState(initial?.notes ?? '')
 
   useEffect(() => {
     requestAnimationFrame(() => setVisible(true))
@@ -72,12 +80,25 @@ export default function AddCustomerSheet({ householdId, onClose, onCreated }: Pr
         recurrence_start: recurrenceStart || null,
         notes: notes.trim() || null,
         status: 'active',
+        lead_id: leadId ?? null,
       })
       .select()
       .single()
 
+    if (err) { setSaving(false); setError(err.message); return }
+
+    if (leadId && data) {
+      await supabase
+        .from('clean_leads')
+        .update({
+          status: 'won',
+          converted_to: data.id,
+          converted_at: new Date().toISOString(),
+        })
+        .eq('id', leadId)
+    }
+
     setSaving(false)
-    if (err) { setError(err.message); return }
     onCreated(data as CleanCustomer)
   }
 
@@ -103,7 +124,7 @@ export default function AddCustomerSheet({ householdId, onClose, onCreated }: Pr
         {/* Scrollable content */}
         <div className="overflow-y-auto flex-1 px-5 pb-4">
           <div className="flex items-center justify-between mt-2 mb-5">
-            <h2 className="text-lg font-bold text-gray-900">New Client</h2>
+            <h2 className="text-lg font-bold text-gray-900">{leadId ? 'Convert to Client' : 'New Client'}</h2>
             <button
               onClick={handleClose}
               className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 text-gray-500"
@@ -263,7 +284,7 @@ export default function AddCustomerSheet({ householdId, onClose, onCreated }: Pr
             className="w-full h-12 rounded-xl font-semibold text-white text-sm disabled:opacity-50"
             style={{ backgroundColor: '#2C5F8A' }}
           >
-            {saving ? 'Saving…' : 'Add Client'}
+            {saving ? 'Saving…' : leadId ? 'Convert to Client' : 'Add Client'}
           </button>
         </div>
       </div>
