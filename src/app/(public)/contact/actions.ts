@@ -9,7 +9,7 @@ export async function submitQuote(formData: FormData) {
   const email = formData.get('email') as string
   const phone = (formData.get('phone') as string) || null
   const address = (formData.get('address') as string) || null
-  const referral_source = (formData.get('referral_source') as string) || null
+  const heard_from = (formData.get('referral_source') as string) || null
   const message = (formData.get('message') as string) || null
 
   if (!name || !email) {
@@ -24,7 +24,7 @@ export async function submitQuote(formData: FormData) {
     email,
     phone,
     address,
-    referral_source,
+    heard_from,
     notes: message,
     status: 'new',
   })
