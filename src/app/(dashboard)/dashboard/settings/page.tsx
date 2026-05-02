@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
 import { generateRecurringEvents, LAST_GENERATED_KEY } from '@/lib/schedule-generator'
@@ -127,6 +128,37 @@ export default function SettingsPage() {
                 Last auto-run: {formatTimestamp(lastGenerated)}
               </p>
             )}
+          </div>
+        </section>
+
+        {/* ── Admin ── */}
+        <section>
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Admin</p>
+          <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
+            <Link
+              href="/dashboard/admin/financials"
+              className="flex items-center justify-between px-4 py-4 active:bg-gray-50 transition-colors"
+            >
+              <div className="flex items-center gap-3">
+                <div
+                  className="w-9 h-9 rounded-xl flex items-center justify-center"
+                  style={{ backgroundColor: '#E8F4F2' }}
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="#0E9F8E" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+                    <line x1="12" y1="20" x2="12" y2="10" />
+                    <line x1="18" y1="20" x2="18" y2="4" />
+                    <line x1="6" y1="20" x2="6" y2="16" />
+                  </svg>
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-gray-800">Financials</p>
+                  <p className="text-xs text-gray-400">Pacing, payouts, monthly close</p>
+                </div>
+              </div>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5 text-gray-300">
+                <polyline points="9 18 15 12 9 6" />
+              </svg>
+            </Link>
           </div>
         </section>
 
