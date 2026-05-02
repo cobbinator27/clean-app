@@ -137,7 +137,7 @@ export default function ClientDetailPage() {
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [selectedEvent, setSelectedEvent] = useState<FullEvent | null>(null)
-  const [lifecycleModal, setLifecycleModal] = useState<'deactivate' | 'reactivate' | null>(null)
+  const [lifecycleModal, setLifecycleModal] = useState<'deactivate' | 'reactivate' | 'recurrence-changed' | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const [lifecycleWorking, setLifecycleWorking] = useState(false)
   const originalCustomerRef = useRef<CleanCustomer | null>(null)
@@ -259,7 +259,13 @@ export default function ClientDetailPage() {
     if (error) { setSaving(false); setSaveError(error.message); return }
 
     const c = saved as CleanCustomer
-    const prevStatus = originalCustomerRef.current?.status
+    const prev = originalCustomerRef.current
+    const prevStatus = prev?.status
+    const recurrenceChanged = !!prev && (
+      (prev.recurrence ?? null) !== (sanitizedRecurrence ?? null) ||
+      (prev.recurrence_day ?? null) !== (updates.recurrence_day ?? null) ||
+      (prev.recurrence_start ?? null) !== (updates.recurrence_start ?? null)
+    )
     originalCustomerRef.current = c
     setCustomer(c)
     populateForm(c)
@@ -270,6 +276,8 @@ export default function ClientDetailPage() {
       setLifecycleModal('deactivate')
     } else if (prevStatus === 'inactive' && customerStatus === 'active') {
       setLifecycleModal('reactivate')
+    } else if (recurrenceChanged && customerStatus === 'active') {
+      setLifecycleModal('recurrence-changed')
     }
   }
 
@@ -309,6 +317,48 @@ export default function ClientDetailPage() {
       .order('scheduled_date', { ascending: false })
       .limit(100)
     splitEvents((ev ?? []) as CleanEvent[])
+  }
+
+  async function handleRebuildSchedule() {
+    setLifecycleModal(null)
+    if (!customer || !householdId) return
+    setLifecycleWorking(true)
+    try {
+      // 1. Delete unprotected future events for this customer
+      const { data: del } = await supabase
+        .from('clean_events')
+        .delete()
+        .eq('customer_id', customer.id)
+        .gte('scheduled_date', todayStr)
+        .eq('status', 'scheduled')
+        .is('arrived_at', null)
+        .is('notes', null)
+        .or('hours_manual_override.is.null,hours_manual_override.eq.false')
+        .select('id')
+      const removed = del?.length ?? 0
+
+      // 2. Regenerate from new recurrence
+      const result = await generateRecurringEvents(supabase, householdId)
+
+      // 3. Pacing recalc for current month
+      if ((removed > 0 || result.generated > 0) && householdId) {
+        recalculatePacing(supabase, householdId, todayStr.substring(0, 7)).catch(console.error)
+      }
+
+      // 4. Refresh event lists
+      const { data: ev } = await supabase
+        .from('clean_events')
+        .select('*')
+        .eq('customer_id', id)
+        .order('scheduled_date', { ascending: false })
+        .limit(100)
+      splitEvents((ev ?? []) as CleanEvent[])
+
+      showToast(`Rebuilt schedule — removed ${removed}, added ${result.generated}`)
+    } catch (err) {
+      console.error('[recurrence-changed] rebuild failed:', err)
+    }
+    setLifecycleWorking(false)
   }
 
   async function handleGenerateSchedule() {
@@ -636,15 +686,12 @@ export default function ClientDetailPage() {
         onUpdate={handleEventUpdate}
       />
 
-      {/* Lifecycle modal */}
+      {/* Lifecycle modal — backdrop is non-dismissable; user must pick a button */}
       {lifecycleModal && (
         <>
-          <div
-            className="fixed inset-0 z-50 bg-black/50"
-            onClick={() => setLifecycleModal(null)}
-          />
+          <div className="fixed inset-0 z-50 bg-black/50" />
           <div className="fixed z-50 inset-x-4 top-1/2 -translate-y-1/2 max-w-sm mx-auto bg-white rounded-2xl shadow-2xl p-6 space-y-4">
-            {lifecycleModal === 'deactivate' ? (
+            {lifecycleModal === 'deactivate' && (
               <>
                 <div>
                   <h2 className="text-base font-bold text-gray-900">Remove Upcoming Cleans?</h2>
@@ -656,7 +703,8 @@ export default function ClientDetailPage() {
                 <div className="flex gap-2">
                   <button
                     onClick={() => setLifecycleModal(null)}
-                    className="flex-1 h-11 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 bg-white"
+                    disabled={lifecycleWorking}
+                    className="flex-1 h-11 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 bg-white disabled:opacity-50"
                   >
                     Keep Cleans
                   </button>
@@ -670,7 +718,9 @@ export default function ClientDetailPage() {
                   </button>
                 </div>
               </>
-            ) : (
+            )}
+
+            {lifecycleModal === 'reactivate' && (
               <>
                 <div>
                   <h2 className="text-base font-bold text-gray-900">Rebuild Schedule?</h2>
@@ -681,7 +731,8 @@ export default function ClientDetailPage() {
                 <div className="flex gap-2">
                   <button
                     onClick={() => setLifecycleModal(null)}
-                    className="flex-1 h-11 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 bg-white"
+                    disabled={lifecycleWorking}
+                    className="flex-1 h-11 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 bg-white disabled:opacity-50"
                   >
                     Skip
                   </button>
@@ -692,6 +743,35 @@ export default function ClientDetailPage() {
                     style={{ backgroundColor: '#0E9F8E' }}
                   >
                     {lifecycleWorking ? 'Generating…' : 'Generate Schedule'}
+                  </button>
+                </div>
+              </>
+            )}
+
+            {lifecycleModal === 'recurrence-changed' && (
+              <>
+                <div>
+                  <h2 className="text-base font-bold text-gray-900">Rebuild {customer?.name}&apos;s Schedule?</h2>
+                  <p className="text-sm text-gray-600 mt-1.5">
+                    You changed their recurring schedule. Would you like to remove the old upcoming cleans and rebuild from the new schedule?
+                  </p>
+                  <p className="text-xs text-gray-400 mt-2">Completed, paid, cancelled, and edited cleans will be kept.</p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setLifecycleModal(null)}
+                    disabled={lifecycleWorking}
+                    className="flex-1 h-11 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 bg-white disabled:opacity-50"
+                  >
+                    Keep As-Is
+                  </button>
+                  <button
+                    onClick={handleRebuildSchedule}
+                    disabled={lifecycleWorking}
+                    className="flex-1 h-11 rounded-xl text-sm font-semibold text-white disabled:opacity-50"
+                    style={{ backgroundColor: '#0E9F8E' }}
+                  >
+                    {lifecycleWorking ? 'Rebuilding…' : 'Rebuild'}
                   </button>
                 </div>
               </>

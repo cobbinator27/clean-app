@@ -169,6 +169,57 @@ export async function generateRecurringEvents(
   }
 }
 
+// ── Wipe & rebuild ────────────────────────────────────────────────────────────
+
+export interface RebuildResult {
+  removed: number
+  generated: number
+  skipped: number
+  protected: number
+  customers: number
+}
+
+/**
+ * Wipe all unprotected future events for the household, then regenerate from
+ * each active customer's current recurrence settings.
+ *
+ * "Unprotected" matches the same rules as the per-customer cleanup:
+ *   status='scheduled', notes IS NULL, arrived_at IS NULL,
+ *   hours_manual_override IS NULL or false.
+ *
+ * Anything paid, cancelled, in-progress, or manually edited stays put.
+ */
+export async function wipeAndRebuildSchedule(
+  supabase: SupabaseClient,
+  householdId: string
+): Promise<RebuildResult> {
+  const todayStr = toLocalDateString(new Date())
+
+  const { data: deleted, error: delErr } = await supabase
+    .from('clean_events')
+    .delete()
+    .eq('household_id', householdId)
+    .gte('scheduled_date', todayStr)
+    .eq('status', 'scheduled')
+    .is('arrived_at', null)
+    .is('notes', null)
+    .or('hours_manual_override.is.null,hours_manual_override.eq.false')
+    .select('id')
+
+  if (delErr) throw new Error(`Wipe failed: ${delErr.message}`)
+  const removed = deleted?.length ?? 0
+
+  const gen = await generateRecurringEvents(supabase, householdId)
+
+  return {
+    removed,
+    generated: gen.generated,
+    skipped: gen.skipped,
+    protected: gen.protected,
+    customers: gen.customers,
+  }
+}
+
 // ── Auto-run helper ───────────────────────────────────────────────────────────
 
 /**

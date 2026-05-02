@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase'
-import { generateRecurringEvents, LAST_GENERATED_KEY } from '@/lib/schedule-generator'
+import { generateRecurringEvents, wipeAndRebuildSchedule, LAST_GENERATED_KEY } from '@/lib/schedule-generator'
 
 function formatTimestamp(iso: string): string {
   const d = new Date(iso)
@@ -21,6 +21,8 @@ export default function SettingsPage() {
   const [email, setEmail] = useState('')
   const [householdId, setHouseholdId] = useState<string | null>(null)
   const [generating, setGenerating] = useState(false)
+  const [rebuilding, setRebuilding] = useState(false)
+  const [confirmRebuild, setConfirmRebuild] = useState(false)
   const [toast, setToast] = useState<{ message: string; ok: boolean } | null>(null)
   const [lastGenerated, setLastGenerated] = useState<string | null>(null)
 
@@ -69,6 +71,23 @@ export default function SettingsPage() {
       showToast(err instanceof Error ? err.message : 'Something went wrong', false)
     } finally {
       setGenerating(false)
+    }
+  }
+
+  async function handleRebuild() {
+    if (!householdId) { showToast('Not linked to a household', false); return }
+    setConfirmRebuild(false)
+    setRebuilding(true)
+    try {
+      const result = await wipeAndRebuildSchedule(supabase, householdId)
+      const now = new Date().toISOString()
+      localStorage.setItem(LAST_GENERATED_KEY, now)
+      setLastGenerated(now)
+      showToast(`Rebuilt — removed ${result.removed}, added ${result.generated}, kept ${result.protected}`, true)
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Rebuild failed', false)
+    } finally {
+      setRebuilding(false)
     }
   }
 
@@ -128,6 +147,20 @@ export default function SettingsPage() {
                 Last auto-run: {formatTimestamp(lastGenerated)}
               </p>
             )}
+
+            <div className="pt-2 border-t border-gray-100">
+              <p className="text-xs text-gray-400 leading-relaxed mb-2">
+                Schedule out of sync? Wipe future cleans and rebuild from each client&apos;s recurrence.
+                Paid, cancelled, and edited cleans are kept.
+              </p>
+              <button
+                onClick={() => setConfirmRebuild(true)}
+                disabled={rebuilding || !householdId}
+                className="w-full h-11 rounded-xl border border-red-200 text-red-600 text-sm font-semibold disabled:opacity-50 active:bg-red-50 transition-colors"
+              >
+                {rebuilding ? 'Rebuilding…' : 'Wipe & Rebuild Schedule'}
+              </button>
+            </div>
           </div>
         </section>
 
@@ -198,6 +231,39 @@ export default function SettingsPage() {
 
         <div className="h-4" />
       </div>
+
+      {/* Wipe & Rebuild confirmation */}
+      {confirmRebuild && (
+        <>
+          <div className="fixed inset-0 z-50 bg-black/50" />
+          <div className="fixed z-50 inset-x-4 top-1/2 -translate-y-1/2 max-w-sm mx-auto bg-white rounded-2xl shadow-2xl p-6 space-y-4">
+            <div>
+              <h2 className="text-base font-bold text-gray-900">Wipe &amp; Rebuild?</h2>
+              <p className="text-sm text-gray-600 mt-1.5">
+                This deletes all future unconfirmed cleans across every active client and regenerates them from each client&apos;s recurring schedule.
+              </p>
+              <p className="text-xs text-gray-400 mt-2">
+                Paid, cancelled, in-progress, and manually-edited cleans are kept.
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setConfirmRebuild(false)}
+                className="flex-1 h-11 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 bg-white"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleRebuild}
+                className="flex-1 h-11 rounded-xl text-sm font-semibold text-white"
+                style={{ backgroundColor: '#DC2626' }}
+              >
+                Rebuild
+              </button>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* Toast */}
       {toast && (
