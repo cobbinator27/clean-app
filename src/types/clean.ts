@@ -86,6 +86,19 @@ export interface CleanBusinessSettings {
   monthly_takehome_target: number
 }
 
+export interface CleanComplianceItem {
+  id: string
+  household_id: string
+  name: string
+  due_date: string             // YYYY-MM-DD
+  recurrence: 'annual' | 'quarterly' | 'none' | null
+  amount: number | null
+  paid: boolean
+  paid_at: string | null
+  link: string | null
+  notes: string | null
+}
+
 export interface CleanMonthlyFinancials {
   id: string
   household_id: string

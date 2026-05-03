@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
+import Link from 'next/link'
 import { createClient } from '@/lib/supabase'
 import type { CleanBusinessSettings, CleanMonthlyFinancials } from '@/types/clean'
 import { recalculatePacing, fetchBusinessSettings } from '@/lib/pacing'
@@ -235,8 +236,14 @@ export default function AdminFinancialsPage() {
     <div className="min-h-screen bg-gray-50 pb-24">
       {/* Header */}
       <div className="sticky top-0 z-10 bg-white border-b border-gray-100 px-4 py-4">
+        <Link href="/dashboard/admin" className="inline-flex items-center gap-1 text-xs text-gray-500 mb-2 active:text-gray-700">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3">
+            <polyline points="15 18 9 12 15 6" />
+          </svg>
+          Dashboard
+        </Link>
         <div className="flex items-center justify-between">
-          <h1 className="text-lg font-bold" style={{ color: '#2C5F8A' }}>Financials</h1>
+          <h1 className="text-lg font-bold" style={{ color: '#2C5F8A' }}>Monthly Financials</h1>
           <div className="flex items-center gap-2">
             {isFinalized && (
               <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700">
