@@ -73,12 +73,14 @@ interface YTD {
 
 export default function AdminDashboardPage() {
   const supabase = createClient()
+  const currentYear = new Date().getFullYear()
   const [householdId, setHouseholdId] = useState<string | null>(null)
+  const [year, setYear] = useState(currentYear)
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null)
-  const [ytd, setYTD] = useState<YTD | null>(null)
-  const [monthlyByKey, setMonthlyByKey] = useState<Record<string, CleanMonthlyFinancials>>({})
-  const [items, setItems] = useState<CleanComplianceItem[]>([])
+  const [allMonthly, setAllMonthly] = useState<CleanMonthlyFinancials[]>([])
+  const [allItems, setAllItems] = useState<CleanComplianceItem[]>([])
   const [loading, setLoading] = useState(true)
+  const [cloning, setCloning] = useState(false)
 
   useEffect(() => {
     async function init() {
@@ -103,8 +105,6 @@ export default function AdminDashboardPage() {
     const weekStart = getWeekMonday(today)
     const weekEnd = addDays(weekStart, 6)
     const overdueCutoff = addDays(today, -7)
-    const yearStart = `${today.getFullYear()}-01`
-    const yearEndExclusive = `${today.getFullYear() + 1}-01`
 
     const [
       { data: outstandingRows },
@@ -127,9 +127,7 @@ export default function AdminDashboardPage() {
       supabase
         .from('clean_monthly_financials')
         .select('*')
-        .eq('household_id', householdId)
-        .gte('month_key', yearStart)
-        .lt('month_key', yearEndExclusive),
+        .eq('household_id', householdId),
       supabase
         .from('clean_compliance_items')
         .select('*')
@@ -137,7 +135,7 @@ export default function AdminDashboardPage() {
         .order('due_date', { ascending: true }),
     ])
 
-    // ── Snapshot ──
+    // ── Snapshot (always current, never year-bound) ──
     const out = (outstandingRows ?? []) as Array<{ scheduled_date: string; expected_amount: number | null }>
     const overdueCutoffStr = toLocalDateString(overdueCutoff)
     const overdue = out.filter(e => e.scheduled_date <= overdueCutoffStr)
@@ -151,13 +149,26 @@ export default function AdminDashboardPage() {
       thisWeekExpected: week.reduce((s, e) => s + (e.expected_amount ?? 0), 0),
     })
 
-    // ── YTD ──
-    const monthly = (monthlyRows ?? []) as CleanMonthlyFinancials[]
-    const byKey: Record<string, CleanMonthlyFinancials> = {}
+    setAllMonthly((monthlyRows ?? []) as CleanMonthlyFinancials[])
+    setAllItems((complianceRows ?? []) as CleanComplianceItem[])
+    setLoading(false)
+  }, [householdId])
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- async data loader
+    loadData()
+  }, [loadData])
+
+  // ── Year-scoped derived data ──────────────────────────────────────────────
+  const yearStr = String(year)
+  const monthlyByKey: Record<string, CleanMonthlyFinancials> = {}
+  for (const m of allMonthly) monthlyByKey[m.month_key] = m
+
+  const monthlyForYear = allMonthly.filter(m => m.month_key.startsWith(`${yearStr}-`))
+  const ytd: YTD = (() => {
     let grossIncome = 0, totalExpenses = 0, taxReserve = 0, netToHousehold = 0, totalHours = 0
     let closed = 0, pacing = 0
-    for (const m of monthly) {
-      byKey[m.month_key] = m
+    for (const m of monthlyForYear) {
       grossIncome += m.gross_income ?? 0
       totalExpenses += (m.total_mileage_expense ?? 0) + (m.sb_expenses_total ?? 0) + (m.total_flat_expense ?? 0)
       taxReserve += m.tax_reserve ?? 0
@@ -166,19 +177,14 @@ export default function AdminDashboardPage() {
       if (m.finalized) closed++
       else pacing++
     }
-    setMonthlyByKey(byKey)
-    setYTD({ grossIncome, totalExpenses, taxReserve, netToHousehold, totalHours, monthsClosed: closed, monthsPacing: pacing })
+    return { grossIncome, totalExpenses, taxReserve, netToHousehold, totalHours, monthsClosed: closed, monthsPacing: pacing }
+  })()
 
-    // ── Compliance ──
-    setItems((complianceRows ?? []) as CleanComplianceItem[])
-
-    setLoading(false)
-  }, [householdId])
-
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- async data loader
-    loadData()
-  }, [loadData])
+  const items = allItems.filter(i => i.due_date.startsWith(`${yearStr}-`))
+  const priorYearItems = allItems.filter(i => i.due_date.startsWith(`${year - 1}-`))
+  const itemNamesInYear = new Set(items.map(i => i.name))
+  const missingFromPrior = priorYearItems.filter(p => !itemNamesInYear.has(p.name))
+  const ytdLabel = year < currentYear ? `${year} Totals` : year > currentYear ? `${year} Projected` : `${year} Year-to-Date`
 
   // Compute suggested amount for a Q-tax item based on monthly tax_reserve
   function suggestedFor(item: CleanComplianceItem): number | null {
@@ -197,8 +203,37 @@ export default function AdminDashboardPage() {
   }
 
   async function updateItem(id: string, patch: Partial<CleanComplianceItem>) {
-    setItems(prev => prev.map(i => i.id === id ? { ...i, ...patch } : i))
+    setAllItems(prev => prev.map(i => i.id === id ? { ...i, ...patch } : i))
     await supabase.from('clean_compliance_items').update(patch).eq('id', id)
+  }
+
+  async function cloneMissingFromPrior() {
+    if (!householdId || missingFromPrior.length === 0) return
+    setCloning(true)
+    const inserts = missingFromPrior.map(p => {
+      // Advance due_date by exactly one year
+      const [y, m, d] = p.due_date.split('-').map(Number)
+      const advanced = `${y + 1}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+      return {
+        household_id: householdId,
+        name: p.name,
+        due_date: advanced,
+        recurrence: p.recurrence,
+        link: p.link,
+        amount: null,
+        paid: false,
+        paid_at: null,
+        notes: null,
+      }
+    })
+    const { data: inserted, error } = await supabase
+      .from('clean_compliance_items')
+      .insert(inserts)
+      .select()
+    if (!error && inserted) {
+      setAllItems(prev => [...prev, ...(inserted as CleanComplianceItem[])])
+    }
+    setCloning(false)
   }
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -207,8 +242,29 @@ export default function AdminDashboardPage() {
     <div className="min-h-screen bg-gray-50 pb-24">
       {/* Header */}
       <header className="sticky top-0 z-30 bg-white border-b border-gray-100 shadow-sm px-4 py-4">
-        <h1 className="text-xl font-bold text-gray-900">Admin Dashboard</h1>
-        <p className="text-xs text-gray-400 mt-0.5">Owner view — operational health, YTD, compliance</p>
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <h1 className="text-xl font-bold text-gray-900">Admin Dashboard</h1>
+            <p className="text-xs text-gray-400 mt-0.5">Owner view — health, YTD, compliance</p>
+          </div>
+          <div className="flex items-center gap-1 shrink-0">
+            <button
+              onClick={() => setYear(y => y - 1)}
+              className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 active:bg-gray-200 transition-colors text-lg font-bold"
+            >
+              ‹
+            </button>
+            <span className="text-sm font-semibold text-gray-700 w-12 text-center">
+              {year}
+            </span>
+            <button
+              onClick={() => setYear(y => y + 1)}
+              className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 active:bg-gray-200 transition-colors text-lg font-bold"
+            >
+              ›
+            </button>
+          </div>
+        </div>
       </header>
 
       {loading ? (
@@ -249,33 +305,53 @@ export default function AdminDashboardPage() {
             </div>
           </section>
 
-          {/* ── YTD ── */}
+          {/* ── Year totals ── */}
           <section>
             <div className="flex items-baseline justify-between mb-3">
-              <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-widest">{new Date().getFullYear()} Year-to-Date</h2>
+              <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-widest">{ytdLabel}</h2>
               <span className="text-xs text-gray-400">
-                {ytd?.monthsClosed ?? 0} closed · {ytd?.monthsPacing ?? 0} pacing
+                {ytd.monthsClosed} closed · {ytd.monthsPacing} pacing
               </span>
             </div>
-            <div className="bg-white rounded-2xl border border-gray-100 p-4 space-y-3">
-              <YTDRow label="Gross Income" value={fmt(ytd?.grossIncome)} bold />
-              <YTDRow label="Total Expenses" value={fmt(ytd?.totalExpenses)} negative />
-              <YTDRow label="Tax Reserve" value={fmt(ytd?.taxReserve)} sub="set aside for federal" />
-              <div className="border-t border-gray-100 pt-3">
-                <YTDRow label="Net to Household" value={fmt(ytd?.netToHousehold)} bold accent />
+            {monthlyForYear.length === 0 ? (
+              <div className="bg-white rounded-2xl border border-gray-100 p-6 text-center">
+                <p className="text-sm text-gray-400">No financial data for {year}</p>
               </div>
-              <div className="text-xs text-gray-400 flex justify-between pt-1">
-                <span>Total Hours</span>
-                <span>{(ytd?.totalHours ?? 0).toFixed(1)}h</span>
+            ) : (
+              <div className="bg-white rounded-2xl border border-gray-100 p-4 space-y-3">
+                <YTDRow label="Gross Income" value={fmt(ytd.grossIncome)} bold />
+                <YTDRow label="Total Expenses" value={fmt(ytd.totalExpenses)} negative />
+                <YTDRow label="Tax Reserve" value={fmt(ytd.taxReserve)} sub="set aside for federal" />
+                <div className="border-t border-gray-100 pt-3">
+                  <YTDRow label="Net to Household" value={fmt(ytd.netToHousehold)} bold accent />
+                </div>
+                <div className="text-xs text-gray-400 flex justify-between pt-1">
+                  <span>Total Hours</span>
+                  <span>{ytd.totalHours.toFixed(1)}h</span>
+                </div>
               </div>
-            </div>
+            )}
           </section>
 
           {/* ── Compliance ── */}
           <section>
-            <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Compliance Calendar</h2>
+            <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">
+              Compliance Calendar — {year}
+            </h2>
             {items.length === 0 ? (
-              <p className="text-sm text-gray-400 text-center py-6">No compliance items yet</p>
+              <div className="bg-white rounded-2xl border border-gray-100 p-6 text-center space-y-3">
+                <p className="text-sm text-gray-500">No compliance items for {year}</p>
+                {missingFromPrior.length > 0 && (
+                  <button
+                    onClick={cloneMissingFromPrior}
+                    disabled={cloning}
+                    className="px-4 py-2.5 rounded-xl text-white text-sm font-semibold disabled:opacity-50"
+                    style={{ backgroundColor: '#0E9F8E' }}
+                  >
+                    {cloning ? 'Creating…' : `Create ${year} from ${year - 1} (${missingFromPrior.length} items)`}
+                  </button>
+                )}
+              </div>
             ) : (
               <div className="space-y-2">
                 {items.map(item => (
@@ -286,6 +362,15 @@ export default function AdminDashboardPage() {
                     onUpdate={patch => updateItem(item.id, patch)}
                   />
                 ))}
+                {missingFromPrior.length > 0 && (
+                  <button
+                    onClick={cloneMissingFromPrior}
+                    disabled={cloning}
+                    className="w-full mt-2 py-3 rounded-xl border-2 border-dashed border-gray-200 text-sm font-medium text-gray-500 hover:border-gray-300 hover:text-gray-700 disabled:opacity-50 transition-colors"
+                  >
+                    {cloning ? 'Adding…' : `+ Add ${missingFromPrior.length} missing from ${year - 1}`}
+                  </button>
+                )}
               </div>
             )}
           </section>
