@@ -242,11 +242,8 @@ export default function AdminDashboardPage() {
     <div className="min-h-screen bg-gray-50 pb-24">
       {/* Header */}
       <header className="sticky top-0 z-30 bg-white border-b border-gray-100 shadow-sm px-4 py-4">
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <h1 className="text-xl font-bold text-gray-900">Admin Dashboard</h1>
-            <p className="text-xs text-gray-400 mt-0.5">Owner view — health, YTD, compliance</p>
-          </div>
+        <div className="flex items-center justify-between gap-3">
+          <h1 className="text-xl font-bold text-gray-900">Admin Dashboard</h1>
           <div className="flex items-center gap-1 shrink-0">
             <button
               onClick={() => setYear(y => y - 1)}
@@ -264,6 +261,19 @@ export default function AdminDashboardPage() {
               ›
             </button>
           </div>
+        </div>
+
+        {/* View tabs */}
+        <div className="flex gap-1 mt-3">
+          <span className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-blue-50 text-blue-700">
+            Yearly
+          </span>
+          <Link
+            href="/dashboard/admin/financials"
+            className="px-3 py-1.5 rounded-lg text-xs font-semibold text-gray-500 hover:bg-gray-100 active:bg-gray-200 transition-colors"
+          >
+            Monthly →
+          </Link>
         </div>
       </header>
 
