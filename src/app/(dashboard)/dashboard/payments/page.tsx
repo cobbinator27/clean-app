@@ -27,6 +27,22 @@ function todayDateString(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
+function currentMonthKey(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+
+function offsetMonth(key: string, n: number): string {
+  const [y, m] = key.split('-').map(Number)
+  const d = new Date(y, m - 1 + n, 1)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+
+function formatMonthLabel(key: string): string {
+  const [y, m] = key.split('-').map(Number)
+  return new Date(y, m - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
+}
+
 // ── Skeleton ──────────────────────────────────────────────────────────────────
 
 function SkeletonRow() {
@@ -219,6 +235,7 @@ function HistoryRow({ event }: { event: PayEvent }) {
 export default function PaymentsPage() {
   const supabase = createClient()
   const [householdId, setHouseholdId] = useState<string | null>(null)
+  const [monthKey, setMonthKey] = useState(currentMonthKey)
   const [outstanding, setOutstanding] = useState<PayEvent[]>([])
   const [history, setHistory] = useState<PayEvent[]>([])
   const [loading, setLoading] = useState(true)
@@ -241,19 +258,23 @@ export default function PaymentsPage() {
     if (!householdId) return
     setLoading(true)
 
+    const monthStart = `${monthKey}-01`
+    const monthEnd = `${offsetMonth(monthKey, 1)}-01`
+
     const { data } = await supabase
       .from('clean_events')
       .select('*, customer:clean_customers(*)')
       .eq('household_id', householdId)
       .in('status', ['done', 'payment_pending', 'paid'])
+      .gte('scheduled_date', monthStart)
+      .lt('scheduled_date', monthEnd)
       .order('scheduled_date', { ascending: false })
-      .limit(200)
 
     const all = (data ?? []) as PayEvent[]
     setOutstanding(all.filter(e => e.status === 'done' || e.status === 'payment_pending'))
-    setHistory(all.filter(e => e.status === 'paid').slice(0, 30))
+    setHistory(all.filter(e => e.status === 'paid'))
     setLoading(false)
-  }, [householdId])
+  }, [householdId, monthKey])
 
   useEffect(() => {
     if (householdId) loadPayments()
@@ -281,21 +302,35 @@ export default function PaymentsPage() {
     }
   }
 
-  // Running total of outstanding
   const totalOutstanding = outstanding.reduce((sum, e) => sum + (e.expected_amount ?? 0), 0)
-  const totalThisMonth = (() => {
-    const now = new Date()
-    const monthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-    return history
-      .filter(e => e.payment_date?.startsWith(monthStr))
-      .reduce((sum, e) => sum + (e.actual_amount ?? 0), 0)
-  })()
+  const totalPaid = history.reduce((sum, e) => sum + (e.actual_amount ?? 0), 0)
+  const isCurrentMonth = monthKey === currentMonthKey()
 
   return (
     <>
       {/* Header */}
       <header className="sticky top-0 z-30 bg-white border-b border-gray-100 shadow-sm px-4 py-4">
-        <h1 className="text-xl font-bold text-gray-900">Payments</h1>
+        <div className="flex items-center justify-between gap-4">
+          <h1 className="text-xl font-bold text-gray-900">Payments</h1>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setMonthKey(k => offsetMonth(k, -1))}
+              className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 active:bg-gray-200 transition-colors text-lg font-bold"
+            >
+              ‹
+            </button>
+            <span className="text-sm font-semibold text-gray-700 w-32 text-center">
+              {formatMonthLabel(monthKey)}
+            </span>
+            <button
+              onClick={() => setMonthKey(k => offsetMonth(k, 1))}
+              disabled={isCurrentMonth}
+              className="w-8 h-8 flex items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 active:bg-gray-200 disabled:opacity-30 transition-colors text-lg font-bold"
+            >
+              ›
+            </button>
+          </div>
+        </div>
       </header>
 
       <div className="px-4 py-4 space-y-6">
@@ -308,9 +343,9 @@ export default function PaymentsPage() {
               <p className="text-xs text-amber-500 mt-0.5">{outstanding.length} clean{outstanding.length !== 1 ? 's' : ''}</p>
             </div>
             <div className="bg-green-50 rounded-2xl p-4">
-              <p className="text-xs text-green-500 font-semibold uppercase tracking-wide">This Month</p>
-              <p className="text-2xl font-bold text-green-700 mt-1">${totalThisMonth.toFixed(0)}</p>
-              <p className="text-xs text-green-500 mt-0.5">paid</p>
+              <p className="text-xs text-green-500 font-semibold uppercase tracking-wide">Collected</p>
+              <p className="text-2xl font-bold text-green-700 mt-1">${totalPaid.toFixed(0)}</p>
+              <p className="text-xs text-green-500 mt-0.5">{history.length} paid</p>
             </div>
           </div>
         )}

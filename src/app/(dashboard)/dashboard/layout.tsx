@@ -4,6 +4,7 @@ import { useEffect } from 'react'
 import { createClient } from '@/lib/supabase'
 import { autoGenerateIfStale } from '@/lib/schedule-generator'
 import BottomNav from '@/components/BottomNav'
+import SideNav from '@/components/SideNav'
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const supabase = createClient()
@@ -27,8 +28,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }, [])
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
-      <main className="flex-1 pb-24">
+    <div className="min-h-screen bg-gray-50 flex">
+      <SideNav />
+      <main className="flex-1 pb-24 md:pb-0 md:ml-56">
         {children}
       </main>
       <BottomNav />
