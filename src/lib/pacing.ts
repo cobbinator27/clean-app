@@ -3,7 +3,7 @@ import type { CleanBusinessSettings, CleanMonthlyFinancials } from '@/types/clea
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
-const EMPLOYEE_DEDUCTION_RATE = 0.0765 // FICA 6.2% + Medicare 1.45%
+export const EMPLOYEE_DEDUCTION_RATE = 0.0765 // FICA 6.2% + Medicare 1.45%
 
 // ── Settings cache ───────────────────────────────────────────────────────────
 
