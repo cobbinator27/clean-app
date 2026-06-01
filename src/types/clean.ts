@@ -86,6 +86,22 @@ export interface CleanBusinessSettings {
   monthly_takehome_target: number
 }
 
+// Owner / extra-income entries. Tracked SEPARATELY from clean_monthly_financials
+// (which stays wired to the budget app). One row per household per month: the flat
+// extra amount earned. The wage/tax/profit breakdown is computed live from that
+// month's real clean_monthly_financials ratios, never stored, so it re-syncs if the
+// month's actuals change.
+export interface CleanOwnerIncome {
+  id: string
+  household_id: string
+  month_key: string            // YYYY-MM
+  amount: number               // flat extra income for the month
+  mirror_expenses: boolean     // false = expense-free (conservative); true = apply month's expense ratio
+  note: string | null
+  created_at: string
+  updated_at: string
+}
+
 export interface CleanComplianceItem {
   id: string
   household_id: string
