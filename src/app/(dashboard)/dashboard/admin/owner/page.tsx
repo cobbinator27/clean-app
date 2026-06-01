@@ -49,6 +49,9 @@ export default function AdminOwnerIncomePage() {
   const [note, setNote] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [finalizing, setFinalizing] = useState(false)
+  const [wagesInput, setWagesInput] = useState('')
+  const [reserveInput, setReserveInput] = useState('')
   const [tableMissing, setTableMissing] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
 
@@ -105,6 +108,9 @@ export default function AdminOwnerIncomePage() {
     setAmountInput(row ? String(row.amount) : '')
     setMirrorExpenses(row?.mirror_expenses ?? false)
     setNote(row?.note ?? '')
+    // Prefill reconcile inputs from saved actuals (when finalized).
+    setWagesInput(row?.finalized && row.actual_wages != null ? String(row.actual_wages) : '')
+    setReserveInput(row?.finalized && row.actual_tax_reserve != null ? String(row.actual_tax_reserve) : '')
     // Table not created yet — calculator still works, persistence doesn't.
     setTableMissing(ownerErr?.code === '42P01')
     setLoading(false)
@@ -153,11 +159,50 @@ export default function AdminOwnerIncomePage() {
     }
   }
 
+  // Reconcile: lock the month in with the owner's actual numbers.
+  async function handleFinalize() {
+    if (!householdId || !existing) {
+      showToast('Save the month first, then reconcile.')
+      return
+    }
+    const actualWages = wagesInput ? parseFloat(wagesInput) : b.grossWages
+    const actualReserve = reserveInput ? parseFloat(reserveInput) : b.taxReserve
+    if (!Number.isFinite(actualWages) || !Number.isFinite(actualReserve)) {
+      showToast('Enter valid amounts')
+      return
+    }
+    setFinalizing(true)
+    const { error } = await supabase
+      .from('clean_owner_income')
+      .update({
+        finalized: true,
+        finalized_at: new Date().toISOString(),
+        actual_wages: actualWages,
+        actual_tax_reserve: actualReserve,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', existing.id)
+    setFinalizing(false)
+    if (error) showToast('Reconcile failed: ' + error.message)
+    else { showToast('Month locked in'); loadData() }
+  }
+
+  async function handleUnfinalize() {
+    if (!existing) return
+    const { error } = await supabase
+      .from('clean_owner_income')
+      .update({ finalized: false, finalized_at: null, updated_at: new Date().toISOString() })
+      .eq('id', existing.id)
+    if (error) showToast('Unlock failed: ' + error.message)
+    else { showToast('Month unlocked — back to estimate'); loadData() }
+  }
+
   // ── Derived ────────────────────────────────────────────────────────────────
 
   const liveAmount = amountInput ? parseFloat(amountInput) : 0
   const b = computeOwnerIncome(liveAmount, financials, settings, mirrorExpenses)
   const taxPct = settings?.tax_reserve_pct ?? 0.22
+  const isFinalized = existing?.finalized ?? false
   const dirty =
     existing == null ||
     String(existing.amount) !== (amountInput || '0') ||
@@ -178,9 +223,20 @@ export default function AdminOwnerIncomePage() {
         </Link>
         <div className="flex items-center justify-between">
           <h1 className="text-lg font-bold" style={{ color: '#2C5F8A' }}>Owner / Extra Income</h1>
-          <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">
-            Separate
-          </span>
+          <div className="flex items-center gap-2">
+            {isFinalized ? (
+              <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700">
+                Locked In
+              </span>
+            ) : existing ? (
+              <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">
+                Estimate
+              </span>
+            ) : null}
+            <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">
+              Separate
+            </span>
+          </div>
         </div>
 
         {/* Month nav */}
@@ -364,6 +420,74 @@ export default function AdminOwnerIncomePage() {
               Last saved {new Date(existing.updated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
               {' · '}move {fmt(existing.amount)} into your separate subaccount manually for now.
             </p>
+          )}
+
+          {/* Reconcile / month-end — lock in actuals */}
+          {existing && b.hasRatio && (
+            <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">
+                Reconcile — Lock In Actuals
+              </p>
+
+              {!isFinalized ? (
+                <>
+                  <p className="text-xs text-gray-500 mb-3 leading-relaxed">
+                    Once you’ve run payroll and set money aside, enter what actually happened to
+                    freeze this month. Blank fields fall back to the estimate above.
+                  </p>
+                  <label className="block text-sm text-gray-600 mb-1">Actual owner wages run</label>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    placeholder={`Estimated: ${fmt(b.grossWages)}`}
+                    value={wagesInput}
+                    onChange={e => setWagesInput(e.target.value)}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-[#2C5F8A]/30"
+                  />
+                  <label className="block text-sm text-gray-600 mb-1">Actual set aside for taxes</label>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    placeholder={`Estimated: ${fmt(b.taxReserve)}`}
+                    value={reserveInput}
+                    onChange={e => setReserveInput(e.target.value)}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-[#2C5F8A]/30"
+                  />
+                  <button
+                    onClick={handleFinalize}
+                    disabled={finalizing || dirty}
+                    className="w-full py-3 rounded-xl text-white text-sm font-semibold disabled:opacity-40"
+                    style={{ backgroundColor: '#0E9F8E' }}
+                  >
+                    {finalizing ? 'Locking in…' : 'Lock In Month'}
+                  </button>
+                  {dirty && (
+                    <p className="text-center text-[11px] text-amber-600 mt-2">
+                      Save your changes above before locking in.
+                    </p>
+                  )}
+                </>
+              ) : (
+                <div className="space-y-3">
+                  <Row label="Actual wages run" value={fmt(existing.actual_wages)} />
+                  <Row label="Actual set aside for taxes" value={fmt(existing.actual_tax_reserve)} />
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-500">Locked in</span>
+                    <span className="font-medium text-green-600">
+                      {existing.finalized_at
+                        ? new Date(existing.finalized_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                        : 'Yes'}
+                    </span>
+                  </div>
+                  <button
+                    onClick={handleUnfinalize}
+                    className="w-full py-2.5 rounded-xl border border-gray-200 text-sm text-gray-500 font-medium"
+                  >
+                    Unlock (back to estimate)
+                  </button>
+                </div>
+              )}
+            </div>
           )}
         </div>
       )}

@@ -280,6 +280,12 @@ export default function AdminDashboardPage() {
           >
             Owner + →
           </Link>
+          <Link
+            href="/dashboard/admin/taxes"
+            className="px-3 py-1.5 rounded-lg text-xs font-semibold text-gray-500 hover:bg-gray-100 active:bg-gray-200 transition-colors"
+          >
+            Taxes →
+          </Link>
         </div>
       </header>
 

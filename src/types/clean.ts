@@ -98,6 +98,11 @@ export interface CleanOwnerIncome {
   amount: number               // flat extra income for the month
   mirror_expenses: boolean     // false = expense-free (conservative); true = apply month's expense ratio
   note: string | null
+  // Reconcile / finalize: lock the month with the owner's ACTUAL numbers.
+  finalized: boolean
+  finalized_at: string | null
+  actual_wages: number | null         // real W-2 wages run for the owner that month
+  actual_tax_reserve: number | null   // real amount set aside for taxes
   created_at: string
   updated_at: string
 }
