@@ -38,6 +38,7 @@ export default function AddCustomerSheet({ householdId, onClose, onCreated, init
   const [visible, setVisible] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [dupConfirm, setDupConfirm] = useState(false)
 
   const [name, setName] = useState(initial?.name ?? '')
   const [address, setAddress] = useState(initial?.address ?? '')
@@ -64,6 +65,31 @@ export default function AddCustomerSheet({ householdId, onClose, onCreated, init
     if (!householdId) { setError('Not linked to a household'); return }
     setSaving(true)
     setError(null)
+
+    // Duplicate guard: don't silently create a second record for someone who's
+    // already a client. This is the main source of "two cleans for one person"
+    // and of ghosts that reappear (deactivate one record, the other stays active
+    // and the generator keeps recreating its cleans). Skip the check on a
+    // deliberate second tap ("Create anyway") and when converting a known lead.
+    if (!dupConfirm && !leadId) {
+      const { data: dupes } = await supabase
+        .from('clean_customers')
+        .select('id, name, status')
+        .eq('household_id', householdId)
+        .ilike('name', name.trim())
+        .limit(1)
+      const existing = dupes?.[0]
+      if (existing) {
+        setSaving(false)
+        setDupConfirm(true)
+        setError(
+          existing.status === 'inactive'
+            ? `${existing.name} already exists as an inactive client — reactivate them instead of making a new record. Tap again to create anyway.`
+            : `${existing.name} is already an active client. Tap again to create a duplicate anyway.`
+        )
+        return
+      }
+    }
 
     const { data, error: err } = await supabase
       .from('clean_customers')
@@ -141,7 +167,7 @@ export default function AddCustomerSheet({ householdId, onClose, onCreated, init
               <input
                 autoFocus
                 value={name}
-                onChange={e => setName(e.target.value)}
+                onChange={e => { setName(e.target.value); setDupConfirm(false); setError(null) }}
                 placeholder="Jane Smith"
                 className={inputCls}
               />
@@ -284,7 +310,7 @@ export default function AddCustomerSheet({ householdId, onClose, onCreated, init
             className="w-full h-12 rounded-xl font-semibold text-white text-sm disabled:opacity-50"
             style={{ backgroundColor: '#2C5F8A' }}
           >
-            {saving ? 'Saving…' : leadId ? 'Convert to Client' : 'Add Client'}
+            {saving ? 'Saving…' : dupConfirm ? 'Create Anyway' : leadId ? 'Convert to Client' : 'Add Client'}
           </button>
         </div>
       </div>

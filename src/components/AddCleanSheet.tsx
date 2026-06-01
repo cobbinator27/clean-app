@@ -99,7 +99,15 @@ export default function AddCleanSheet({ householdId, customers, onClose, onCreat
     })
 
     setSaving(false)
-    if (err) { setError(err.message); return }
+    if (err) {
+      // 23505 = unique_violation on (customer_id, scheduled_date)
+      if (err.code === '23505') {
+        setError(`${selectedCustomer.name} already has a clean scheduled on that day.`)
+      } else {
+        setError(err.message)
+      }
+      return
+    }
 
     const monthKey = date.substring(0, 7)
     recalculatePacing(supabase, householdId, monthKey).catch(console.error)

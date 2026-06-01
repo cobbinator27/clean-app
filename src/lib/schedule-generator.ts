@@ -136,11 +136,20 @@ export async function generateRecurringEvents(
       })
     }
 
-    // 4. Batch insert
+    // 4. Batch insert. Use upsert with ignoreDuplicates so the unique constraint
+    //    (customer_id, scheduled_date) is the real guard: if another device's run
+    //    raced us and already inserted a date, that row is silently skipped
+    //    instead of failing the whole batch. We count only the rows that landed.
     if (toInsert.length > 0) {
-      const { error: insertErr } = await supabase.from('clean_events').insert(toInsert)
+      const { data: inserted, error: insertErr } = await supabase
+        .from('clean_events')
+        .upsert(toInsert, {
+          onConflict: 'customer_id,scheduled_date',
+          ignoreDuplicates: true,
+        })
+        .select('id')
       if (!insertErr) {
-        totalGenerated += toInsert.length
+        totalGenerated += inserted?.length ?? 0
       } else {
         console.error(`[schedule-generator] Insert failed for ${customer.name}:`, insertErr.message)
       }
@@ -224,13 +233,24 @@ export async function wipeAndRebuildSchedule(
 
 /**
  * Run the generator silently if it hasn't run in the last AUTO_RUN_INTERVAL_MS.
- * Safe to call on every page load — throttled by localStorage timestamp.
+ * Safe to call on every page load.
+ *
+ * The throttle timestamp lives on the household's settings row (shared by every
+ * device) rather than localStorage, so Julie's phone and the laptop coordinate
+ * instead of each keeping their own timer and double-running. The unique
+ * constraint on clean_events is the final backstop if two devices still race.
  */
 export async function autoGenerateIfStale(
   supabase: SupabaseClient,
   householdId: string
 ): Promise<void> {
-  const lastRun = localStorage.getItem(LAST_GENERATED_KEY)
+  const { data: settingsRow } = await supabase
+    .from('clean_business_settings')
+    .select('schedule_last_generated_at')
+    .eq('household_id', householdId)
+    .maybeSingle()
+
+  const lastRun = settingsRow?.schedule_last_generated_at
   if (lastRun) {
     const elapsed = Date.now() - new Date(lastRun).getTime()
     if (elapsed < AUTO_RUN_INTERVAL_MS) return
@@ -238,7 +258,10 @@ export async function autoGenerateIfStale(
 
   try {
     const result = await generateRecurringEvents(supabase, householdId)
-    localStorage.setItem(LAST_GENERATED_KEY, new Date().toISOString())
+    await supabase
+      .from('clean_business_settings')
+      .update({ schedule_last_generated_at: new Date().toISOString() })
+      .eq('household_id', householdId)
     if (result.generated > 0) {
       console.log(`[schedule-generator] Auto-generated ${result.generated} cleans across ${result.customers} clients`)
     }

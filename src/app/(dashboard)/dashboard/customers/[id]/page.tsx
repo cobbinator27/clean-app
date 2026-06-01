@@ -242,20 +242,12 @@ export default function ClientDetailPage() {
       notes: notes.trim() || null,
       status: customerStatus,
     }
-    console.log('=== SAVING CLIENT ===')
-    console.log('recurrence state:', recurrence)
-    console.log('sanitizedRecurrence:', sanitizedRecurrence)
-    console.log('recurrenceDay:', recurrenceDay)
-    console.log('recurrenceStart:', recurrenceStart)
-    console.log('full updates:', JSON.stringify(updates, null, 2))
     const { data: saved, error } = await supabase
       .from('clean_customers')
       .update(updates)
       .eq('id', id)
       .select()
       .single()
-    console.log('update error:', error)
-    console.log('update data:', saved)
     if (error) { setSaving(false); setSaveError(error.message); return }
 
     const c = saved as CleanCustomer
@@ -290,15 +282,16 @@ export default function ClientDetailPage() {
     setLifecycleModal(null)
     if (!customer) return
     setLifecycleWorking(true)
+    // Inactive client → remove every upcoming clean, including ones with notes or
+    // a manual override. Those "protected" leftovers were the ghosts that kept
+    // showing up on the schedule for clients who are no longer active. Anything
+    // already done/paid/in-progress is left untouched for the records.
     const { data, error } = await supabase
       .from('clean_events')
       .delete()
       .eq('customer_id', customer.id)
       .gte('scheduled_date', todayStr)
       .eq('status', 'scheduled')
-      .is('arrived_at', null)
-      .is('notes', null)
-      .or('hours_manual_override.is.null,hours_manual_override.eq.false')
       .select('id')
     setLifecycleWorking(false)
     if (error) { console.error('[deactivate] delete failed:', error.message); return }
@@ -696,9 +689,9 @@ export default function ClientDetailPage() {
                 <div>
                   <h2 className="text-base font-bold text-gray-900">Remove Upcoming Cleans?</h2>
                   <p className="text-sm text-gray-600 mt-1.5">
-                    You marked {customer?.name} as inactive. Would you like to remove their upcoming unconfirmed cleans from the schedule?
+                    You marked {customer?.name} as inactive. Would you like to remove all of their upcoming cleans from the schedule?
                   </p>
-                  <p className="text-xs text-gray-400 mt-2">Completed and paid cleans will be kept for your records.</p>
+                  <p className="text-xs text-gray-400 mt-2">Completed and paid cleans are always kept for your records. Recommended — this is what keeps inactive clients off the schedule.</p>
                 </div>
                 <div className="flex gap-2">
                   <button
