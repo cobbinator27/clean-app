@@ -17,7 +17,7 @@ The app is live and in active development. Julie is beginning to use it as the p
 |---|---|
 | **Public Website** | Replaces WordPress at spokane-clean.com. SEO-optimized, customer-facing. Includes quote/lead capture form. BUILT — homepage, services, about, contact pages. Route group `(public)` with Header/Footer layout. JSON-LD schema, DM Serif Display heading font. Quote form → `clean_leads` table via server action. Google Voice (509) 720-8067. |
 | **Cleaner Portal** | Julie's mobile-first daily app. Schedule view, client management, time tracking, payment logging. BUILT — actively being refined. |
-| **Admin Portal** | Daniel's financial dashboard. Income summary, payroll export, tax tracker, compliance calendar, business settings. PARTIALLY BUILT. |
+| **Admin Portal** | Daniel's financial dashboard. Income summary, payroll export, tax tracker, compliance calendar, business settings. PARTIALLY BUILT. Tabs: Yearly, Monthly (`/financials`), Owner+ (`/owner` — extra-income tracker, §8.4), Taxes (`/taxes` — combined Julie + owner tax reserve, YTD + by federal quarter). |
 
 ### 1.2 The Old Workflow (Replaced)
 
@@ -67,6 +67,7 @@ The app is live and in active development. Julie is beginning to use it as the p
 | `clean_events` | The atomic unit. Every clean is a row. Status pipeline, time tracking, payment, expense snapshots. |
 | `clean_monthly_financials` | Monthly summary with finalized flag. Tracks Simple Budgets sync state. |
 | `clean_compliance_items` | Tax deadlines, license renewals. Pre-seeded with real dates. |
+| `clean_owner_income` | Owner's extra/non-clean income, tracked SEPARATELY from `clean_monthly_financials` (does NOT touch SB). One row per household per month. Has finalize/reconcile columns (`finalized`, `actual_wages`, `actual_tax_reserve`). See §8.4. |
 
 ### 3.2 Key Fields — clean_customers
 
@@ -295,6 +296,22 @@ Both apps share the same Supabase project. clean. maintains a **net_to_household
 | Tax Reserve (22%) | $365.90 |
 | Transfer to Bank | $1,242.72 |
 | Net to Household | ~$2,665 |
+
+### 8.4 Owner / Extra Income (added May 2026)
+
+**Why:** clean. is taxed as an **S-corp**, so Daniel is an owner-employee whose pay is correctly W-2 wages + distributions (not an owner's draw). Extra/non-clean business income for 2026 is booked as clean. income at the *same blended ratios* as Julie's real months — a deliberate stopgap until per-source deductions are broken out properly in a future tax year.
+
+**How it works:** On the Owner+ tab (`/dashboard/admin/owner`), enter a flat extra amount for a month. It reads *that same month's* actual ratios from `clean_monthly_financials` (wage ratio = `gross_wages / gross_income`) and splits the amount using the same payroll/tax formulas as §8.2 — owner W-2 wages (reasonable comp), employee/employer payroll tax, profit/distribution, and tax reserve. An expense-free vs. mirror-month-expenses toggle controls whether phantom expenses are subtracted (default expense-free = conservative, reserves more for tax).
+
+**Kept separate:** Nothing here writes to `clean_monthly_financials` or syncs to Simple Budgets. Daniel moves the money manually for now.
+
+**Reconcile:** A month can be "locked in" with actuals (`actual_wages`, `actual_tax_reserve`) — same pattern as month-end finalize on `clean_monthly_financials`. Locked months show actuals everywhere instead of the estimate.
+
+**Tax Center** (`/dashboard/admin/taxes`): combined view of tax reserve across BOTH sides — Julie (`clean_monthly_financials.tax_reserve`) + owner (`clean_owner_income`) — as YTD and per **federal estimated-tax quarter** (Q2 = Apr–May, Q4 = Sep–Dec, NOT calendar quarters). Locked owner months use actuals; others use the live estimate.
+
+**Code:** `src/lib/owner-income.ts` (per-month breakdown), `src/lib/tax-summary.ts` (combined aggregation), pages under `src/app/(dashboard)/dashboard/admin/{owner,taxes}/`. Migrations: `20260531_clean_owner_income.sql` + `..._finalize.sql` (both applied to project `loljmtegtdmvpoounozw`).
+
+> ⚠️ **CPA caveat:** the wage-vs-distribution split currently mirrors Julie's ratio. The S-corp **"reasonable compensation"** amount is the figure the IRS scrutinizes — confirm it with a CPA before relying on these numbers at filing. This tool shows money *set aside*, not a filed tax calculation.
 
 ---
 
