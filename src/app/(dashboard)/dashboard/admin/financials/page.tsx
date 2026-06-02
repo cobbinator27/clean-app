@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase'
 import type { CleanBusinessSettings, CleanMonthlyFinancials } from '@/types/clean'
 import { recalculatePacing, fetchBusinessSettings } from '@/lib/pacing'
+import AdminTabs from '@/components/AdminTabs'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -180,6 +181,8 @@ export default function AdminFinancialsPage() {
             )}
           </div>
         </div>
+
+        <AdminTabs active="monthly" />
 
         {/* Month nav */}
         <div className="flex items-center justify-between mt-3">

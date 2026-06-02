@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase'
 import type { CleanComplianceItem, CleanMonthlyFinancials } from '@/types/clean'
 import { toLocalDateString, getWeekMonday, addDays } from '@/lib/date-utils'
+import AdminTabs from '@/components/AdminTabs'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -264,35 +265,7 @@ export default function AdminDashboardPage() {
         </div>
 
         {/* View tabs */}
-        <div className="flex gap-1 mt-3">
-          <span className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-blue-50 text-blue-700">
-            Yearly
-          </span>
-          <Link
-            href="/dashboard/admin/financials"
-            className="px-3 py-1.5 rounded-lg text-xs font-semibold text-gray-500 hover:bg-gray-100 active:bg-gray-200 transition-colors"
-          >
-            Monthly →
-          </Link>
-          <Link
-            href="/dashboard/admin/payroll"
-            className="px-3 py-1.5 rounded-lg text-xs font-semibold text-gray-500 hover:bg-gray-100 active:bg-gray-200 transition-colors"
-          >
-            Payroll →
-          </Link>
-          <Link
-            href="/dashboard/admin/owner"
-            className="px-3 py-1.5 rounded-lg text-xs font-semibold text-gray-500 hover:bg-gray-100 active:bg-gray-200 transition-colors"
-          >
-            Owner + →
-          </Link>
-          <Link
-            href="/dashboard/admin/taxes"
-            className="px-3 py-1.5 rounded-lg text-xs font-semibold text-gray-500 hover:bg-gray-100 active:bg-gray-200 transition-colors"
-          >
-            Taxes →
-          </Link>
-        </div>
+        <AdminTabs active="yearly" />
       </header>
 
       {loading ? (

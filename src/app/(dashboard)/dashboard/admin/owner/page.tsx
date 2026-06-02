@@ -10,6 +10,7 @@ import type {
 } from '@/types/clean'
 import { fetchBusinessSettings } from '@/lib/pacing'
 import { computeOwnerIncome } from '@/lib/owner-income'
+import AdminTabs from '@/components/AdminTabs'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -45,7 +46,7 @@ export default function AdminOwnerIncomePage() {
   const [settings, setSettings] = useState<CleanBusinessSettings | null>(null)
   const [existing, setExisting] = useState<CleanOwnerIncome | null>(null)
   const [amountInput, setAmountInput] = useState('')
-  const [mirrorExpenses, setMirrorExpenses] = useState(false)
+  const [mirrorExpenses, setMirrorExpenses] = useState(true)
   const [note, setNote] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -103,7 +104,7 @@ export default function AdminOwnerIncomePage() {
     setFinancials(fin as CleanMonthlyFinancials | null)
     setExisting(row)
     setAmountInput(row ? String(row.amount) : '')
-    setMirrorExpenses(row?.mirror_expenses ?? false)
+    setMirrorExpenses(row?.mirror_expenses ?? true)
     setNote(row?.note ?? '')
     // Table not created yet — calculator still works, persistence doesn't.
     setTableMissing(ownerErr?.code === '42P01')
@@ -195,6 +196,8 @@ export default function AdminOwnerIncomePage() {
           </div>
         </div>
 
+        <AdminTabs active="owner" />
+
         {/* Month nav */}
         <div className="flex items-center justify-between mt-3">
           <button
@@ -264,8 +267,8 @@ export default function AdminOwnerIncomePage() {
                 </span>
                 <span className="block text-[11px] text-gray-400 mt-0.5">
                   {mirrorExpenses
-                    ? 'Applies this month’s expense ratio (reserves less for taxes)'
-                    : 'No phantom expenses — reserves more for taxes (recommended)'}
+                    ? 'Applies this month’s expense ratio — same effective rate as Julie (recommended)'
+                    : 'No phantom expenses — reserves more for taxes (conservative)'}
                 </span>
               </span>
               <span className={`shrink-0 w-10 h-6 rounded-full transition-colors relative ${mirrorExpenses ? 'bg-[#2C5F8A]' : 'bg-gray-300'}`}>

@@ -15,6 +15,7 @@ import {
   saveOwnerPayroll,
   type PayrollSummary,
 } from '@/lib/payroll'
+import AdminTabs from '@/components/AdminTabs'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -238,6 +239,8 @@ export default function AdminPayrollPage() {
             <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">Estimate</span>
           ) : null}
         </div>
+
+        <AdminTabs active="payroll" />
 
         {/* Month nav */}
         <div className="flex items-center justify-between mt-3">

@@ -10,6 +10,7 @@ import type {
 } from '@/types/clean'
 import { fetchBusinessSettings } from '@/lib/pacing'
 import { buildTaxSummary, type TaxSummary } from '@/lib/tax-summary'
+import AdminTabs from '@/components/AdminTabs'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -102,6 +103,8 @@ export default function AdminTaxesPage() {
             </button>
           </div>
         </div>
+
+        <AdminTabs active="taxes" />
       </div>
 
       {loading ? (
