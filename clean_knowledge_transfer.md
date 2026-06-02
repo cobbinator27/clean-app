@@ -17,7 +17,7 @@ The app is live and in active development. Julie is beginning to use it as the p
 |---|---|
 | **Public Website** | Replaces WordPress at spokane-clean.com. SEO-optimized, customer-facing. Includes quote/lead capture form. BUILT — homepage, services, about, contact pages. Route group `(public)` with Header/Footer layout. JSON-LD schema, DM Serif Display heading font. Quote form → `clean_leads` table via server action. Google Voice (509) 720-8067. |
 | **Cleaner Portal** | Julie's mobile-first daily app. Schedule view, client management, time tracking, payment logging. BUILT — actively being refined. |
-| **Admin Portal** | Daniel's financial dashboard. Income summary, payroll export, tax tracker, compliance calendar, business settings. PARTIALLY BUILT. Tabs: Yearly, Monthly (`/financials`), Owner+ (`/owner` — extra-income tracker, §8.4), Taxes (`/taxes` — combined Julie + owner tax reserve, YTD + by federal quarter). |
+| **Admin Portal** | Daniel's financial dashboard. Income summary, payroll export, tax tracker, compliance calendar, business settings. PARTIALLY BUILT. Tabs: Yearly, Monthly (`/financials`), Payroll (`/payroll` — reconcile BOTH people + the one "move to bank" number, §8.4), Owner+ (`/owner` — extra-income tracker, §8.4), Taxes (`/taxes` — combined Julie + owner tax reserve, YTD + by federal quarter). Month-end reconcile is done ONLY on the Payroll tab; Monthly/Owner+ show those numbers read-only. |
 
 ### 1.2 The Old Workflow (Replaced)
 
@@ -67,7 +67,7 @@ The app is live and in active development. Julie is beginning to use it as the p
 | `clean_events` | The atomic unit. Every clean is a row. Status pipeline, time tracking, payment, expense snapshots. |
 | `clean_monthly_financials` | Monthly summary with finalized flag. Tracks Simple Budgets sync state. |
 | `clean_compliance_items` | Tax deadlines, license renewals. Pre-seeded with real dates. |
-| `clean_owner_income` | Owner's extra/non-clean income, tracked SEPARATELY from `clean_monthly_financials` (does NOT touch SB). One row per household per month. Has finalize/reconcile columns (`finalized`, `actual_wages`, `actual_tax_reserve`). See §8.4. |
+| `clean_owner_income` | Owner's extra/non-clean income, tracked SEPARATELY from `clean_monthly_financials` (does NOT touch SB). One row per household per month. Reconcile columns: `finalized`, `actual_withdrawal`, `actual_deposit`, `actual_tax_reserve` (`actual_wages` is legacy/unused). Reconciled on the Payroll tab. See §8.4. |
 
 ### 3.2 Key Fields — clean_customers
 
@@ -297,7 +297,7 @@ Both apps share the same Supabase project. clean. maintains a **net_to_household
 | Transfer to Bank | $1,242.72 |
 | Net to Household | ~$2,665 |
 
-### 8.4 Owner / Extra Income (added May 2026)
+### 8.4 Owner / Extra Income + Unified Payroll (added May–Jun 2026)
 
 **Why:** clean. is taxed as an **S-corp**, so Daniel is an owner-employee whose pay is correctly W-2 wages + distributions (not an owner's draw). Extra/non-clean business income for 2026 is booked as clean. income at the *same blended ratios* as Julie's real months — a deliberate stopgap until per-source deductions are broken out properly in a future tax year.
 
@@ -305,11 +305,11 @@ Both apps share the same Supabase project. clean. maintains a **net_to_household
 
 **Kept separate:** Nothing here writes to `clean_monthly_financials` or syncs to Simple Budgets. Daniel moves the money manually for now.
 
-**Reconcile:** A month can be "locked in" with actuals (`actual_wages`, `actual_tax_reserve`) — same pattern as month-end finalize on `clean_monthly_financials`. Locked months show actuals everywhere instead of the estimate.
+**Payroll tab — the ONE place to reconcile both people** (`/dashboard/admin/payroll`, added Jun 2026): manage Julie AND the owner for a month side by side. For each person you enter the actual total **withdrawal** and **net pay**; the tax reserve is computed, and the screen shows the single **"Move to bank"** total = Σ(withdrawal + tax reserve) across both. "Lock In Month" finalizes both at once (writes Julie → `clean_monthly_financials`, owner → `clean_owner_income`). An empty owner side just contributes $0. This replaced the old split flow where Julie was finalized on the Monthly tab and the owner reconciled on the Owner+ tab — those inputs are now **read-only** with a link to Payroll, so there's exactly one spot to do month-end.
 
 **Tax Center** (`/dashboard/admin/taxes`): combined view of tax reserve across BOTH sides — Julie (`clean_monthly_financials.tax_reserve`) + owner (`clean_owner_income`) — as YTD and per **federal estimated-tax quarter** (Q2 = Apr–May, Q4 = Sep–Dec, NOT calendar quarters). Locked owner months use actuals; others use the live estimate.
 
-**Code:** `src/lib/owner-income.ts` (per-month breakdown), `src/lib/tax-summary.ts` (combined aggregation), pages under `src/app/(dashboard)/dashboard/admin/{owner,taxes}/`. Migrations: `20260531_clean_owner_income.sql` + `..._finalize.sql` (both applied to project `loljmtegtdmvpoounozw`).
+**Code:** `src/lib/owner-income.ts` (per-month breakdown), `src/lib/tax-summary.ts` (combined tax aggregation), `src/lib/payroll.ts` (unified payroll: `buildPayrollSummary` + save helpers). Pages under `src/app/(dashboard)/dashboard/admin/{owner,taxes,payroll}/`. Owner actuals stored on `clean_owner_income` as `actual_withdrawal` / `actual_deposit` / `actual_tax_reserve` (the older `actual_wages` is legacy, unused). Migrations: `20260531_clean_owner_income.sql`, `..._finalize.sql`, `20260601_clean_owner_income_payroll.sql` (all applied to project `loljmtegtdmvpoounozw`).
 
 > ⚠️ **CPA caveat:** the wage-vs-distribution split currently mirrors Julie's ratio. The S-corp **"reasonable compensation"** amount is the figure the IRS scrutinizes — confirm it with a CPA before relying on these numbers at filing. This tool shows money *set aside*, not a filed tax calculation.
 
