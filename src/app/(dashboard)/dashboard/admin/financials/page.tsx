@@ -54,15 +54,6 @@ export default function AdminFinancialsPage() {
   const [settings, setSettings] = useState<CleanBusinessSettings | null>(null)
   const [eventSummary, setEventSummary] = useState<EventSummary | null>(null)
   const [loading, setLoading] = useState(true)
-  const [withdrawalInput, setWithdrawalInput] = useState('')
-  const [depositInput, setDepositInput] = useState('')
-  const [finalizing, setFinalizing] = useState(false)
-  const [toast, setToast] = useState<string | null>(null)
-
-  function showToast(msg: string) {
-    setToast(msg)
-    setTimeout(() => setToast(null), 4000)
-  }
 
   // Load household
   useEffect(() => {
@@ -132,80 +123,12 @@ export default function AdminFinancialsPage() {
       setEventSummary(summary)
     }
 
-    // Prefill finalization inputs from existing actuals
-    if (fin) {
-      const f = fin as CleanMonthlyFinancials
-      if (f.finalized && f.payroll_withdrawal != null) {
-        setWithdrawalInput(String(f.payroll_withdrawal))
-      } else {
-        setWithdrawalInput('')
-      }
-      if (f.finalized && f.payroll_deposit != null) {
-        setDepositInput(String(f.payroll_deposit))
-      } else {
-        setDepositInput('')
-      }
-    } else {
-      setWithdrawalInput('')
-      setDepositInput('')
-    }
-
     setLoading(false)
   }, [householdId, monthKey])
 
   useEffect(() => {
     loadData()
   }, [loadData])
-
-  // Finalize month
-  async function handleFinalize() {
-    if (!householdId || !financials || !settings) return
-    setFinalizing(true)
-
-    const actualWithdrawal = withdrawalInput ? parseFloat(withdrawalInput) : financials.payroll_withdrawal
-    const actualDeposit = depositInput ? parseFloat(depositInput) : financials.payroll_deposit
-
-    // Recalculate with actual payroll numbers
-    const gross = financials.gross_income
-    const totalExpenses = financials.total_mileage_expense + financials.sb_expenses_total + financials.total_flat_expense
-    const incomeAsProfit = gross - (actualWithdrawal ?? 0) - totalExpenses
-    const taxReserve = Math.round(incomeAsProfit * settings.tax_reserve_pct * 100) / 100
-    const transferToBank = taxReserve + (actualWithdrawal ?? 0)
-    const netToHousehold = Math.round((gross - transferToBank + (actualDeposit ?? 0)) * 100) / 100
-
-    const { error } = await supabase
-      .from('clean_monthly_financials')
-      .update({
-        payroll_withdrawal: actualWithdrawal,
-        payroll_deposit: actualDeposit,
-        income_as_profit: Math.round(incomeAsProfit * 100) / 100,
-        tax_reserve: taxReserve,
-        transfer_to_bank: Math.round(transferToBank * 100) / 100,
-        net_to_household: netToHousehold,
-        finalized: true,
-        finalized_at: new Date().toISOString(),
-      })
-      .eq('id', financials.id)
-
-    setFinalizing(false)
-    if (error) {
-      showToast('Finalize failed: ' + error.message)
-    } else {
-      showToast('Month finalized')
-      loadData()
-    }
-  }
-
-  // Unfinalize
-  async function handleUnfinalize() {
-    if (!financials) return
-    await supabase
-      .from('clean_monthly_financials')
-      .update({ finalized: false, finalized_at: null })
-      .eq('id', financials.id)
-    showToast('Month un-finalized — recalculating...')
-    loadData()
-  }
 
   // Load category target from SB monthly_budgets
   const [categoryTarget, setCategoryTarget] = useState<number>(0)
@@ -374,73 +297,41 @@ export default function AdminFinancialsPage() {
             </div>
           )}
 
-          {/* Finalization section */}
+          {/* Month-End — now managed on the Payroll tab */}
           <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Month-End</p>
-
-            {!isFinalized ? (
-              <>
-                <label className="block text-sm text-gray-600 mb-1">Actual Payroll Withdrawal</label>
-                <input
-                  type="number"
-                  inputMode="decimal"
-                  placeholder={financials.payroll_withdrawal != null ? `Estimated: ${fmt(financials.payroll_withdrawal)}` : 'Enter actual withdrawal...'}
-                  value={withdrawalInput}
-                  onChange={e => setWithdrawalInput(e.target.value)}
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-[#2C5F8A]/30"
-                />
-                <label className="block text-sm text-gray-600 mb-1">Actual Payroll Deposit</label>
-                <input
-                  type="number"
-                  inputMode="decimal"
-                  placeholder={financials.payroll_deposit != null ? `Estimated: ${fmt(financials.payroll_deposit)}` : 'Enter actual deposit...'}
-                  value={depositInput}
-                  onChange={e => setDepositInput(e.target.value)}
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-[#2C5F8A]/30"
-                />
-                <button
-                  onClick={handleFinalize}
-                  disabled={finalizing}
-                  className="w-full py-3 rounded-xl text-white text-sm font-semibold"
-                  style={{ backgroundColor: '#2C5F8A' }}
-                >
-                  {finalizing ? 'Finalizing...' : 'Finalize Month'}
-                </button>
-              </>
-            ) : (
-              <div className="space-y-3">
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">Payroll Withdrawal</span>
-                  <span className="font-medium">{fmt(financials.payroll_withdrawal)}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">Payroll Deposit</span>
-                  <span className="font-medium">{fmt(financials.payroll_deposit)}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">Finalized</span>
-                  <span className="font-medium text-green-600">
-                    {financials.finalized_at
-                      ? new Date(financials.finalized_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-                      : 'Yes'}
-                  </span>
-                </div>
-                <button
-                  onClick={handleUnfinalize}
-                  className="w-full py-2.5 rounded-xl border border-gray-200 text-sm text-gray-500 font-medium"
-                >
-                  Un-finalize
-                </button>
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest">Month-End</p>
+              {isFinalized ? (
+                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700">Finalized</span>
+              ) : (
+                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">Pacing</span>
+              )}
+            </div>
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-gray-500">Payroll Withdrawal</span>
+                <span className="font-medium">{fmt(financials.payroll_withdrawal)}</span>
               </div>
-            )}
+              <div className="flex justify-between">
+                <span className="text-gray-500">Payroll Deposit</span>
+                <span className="font-medium">{fmt(financials.payroll_deposit)}</span>
+              </div>
+            </div>
+            <Link
+              href="/dashboard/admin/payroll"
+              className="mt-3 flex items-center justify-between rounded-xl bg-gray-50 px-3 py-2.5 active:bg-gray-100"
+            >
+              <span className="text-sm font-medium text-gray-700">
+                {isFinalized ? 'Edit on Payroll →' : 'Run payroll & close month →'}
+              </span>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4 text-gray-400">
+                <polyline points="9 18 15 12 9 6" />
+              </svg>
+            </Link>
+            <p className="text-[11px] text-gray-400 mt-2">
+              Both Julie and your owner income are now reconciled together on the Payroll tab.
+            </p>
           </div>
-        </div>
-      )}
-
-      {/* Toast */}
-      {toast && (
-        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-50 bg-gray-900 text-white text-sm font-medium px-4 py-3 rounded-2xl shadow-xl max-w-xs text-center">
-          {toast}
         </div>
       )}
     </div>

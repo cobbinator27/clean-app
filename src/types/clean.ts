@@ -101,8 +101,10 @@ export interface CleanOwnerIncome {
   // Reconcile / finalize: lock the month with the owner's ACTUAL numbers.
   finalized: boolean
   finalized_at: string | null
-  actual_wages: number | null         // real W-2 wages run for the owner that month
+  actual_wages: number | null         // (legacy) real W-2 wages run for the owner that month
   actual_tax_reserve: number | null   // real amount set aside for taxes
+  actual_withdrawal: number | null    // real total payroll withdrawal for the owner
+  actual_deposit: number | null       // real net pay deposited to the owner
   created_at: string
   updated_at: string
 }
