@@ -40,8 +40,12 @@ function fmt(n: number | null | undefined): string {
   return `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
+function round2(n: number): number {
+  return Math.round(n * 100) / 100
+}
+
 function taxReserveFor(incomeBase: number, withdrawal: number, expenses: number, pct: number): number {
-  return Math.round((incomeBase - withdrawal - expenses) * pct * 100) / 100
+  return round2((incomeBase - withdrawal - expenses) * pct)
 }
 
 // ── Page ─────────────────────────────────────────────────────────────────────
@@ -59,11 +63,9 @@ export default function AdminPayrollPage() {
   const [ownerTableMissing, setOwnerTableMissing] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
 
-  // Editable inputs (blank = use estimate)
-  const [jWithdrawal, setJWithdrawal] = useState('')
-  const [jDeposit, setJDeposit] = useState('')
-  const [oWithdrawal, setOWithdrawal] = useState('')
-  const [oDeposit, setODeposit] = useState('')
+  // Editable inputs — ONE combined withdrawal + ONE combined net pay (blank = estimate)
+  const [withdrawalInput, setWithdrawalInput] = useState('')
+  const [depositInput, setDepositInput] = useState('')
 
   function showToast(msg: string) {
     setToast(msg)
@@ -113,11 +115,17 @@ export default function AdminPayrollPage() {
     setSummary(sum)
     setOwnerTableMissing(ownErr?.code === '42P01')
 
-    // Prefill inputs from saved actuals where the side is locked.
-    setJWithdrawal(finRow?.finalized && finRow.payroll_withdrawal != null ? String(finRow.payroll_withdrawal) : '')
-    setJDeposit(finRow?.finalized && finRow.payroll_deposit != null ? String(finRow.payroll_deposit) : '')
-    setOWithdrawal(ownRow?.finalized && ownRow.actual_withdrawal != null ? String(ownRow.actual_withdrawal) : '')
-    setODeposit(ownRow?.finalized && ownRow.actual_deposit != null ? String(ownRow.actual_deposit) : '')
+    // Prefill the two combined fields from saved actuals when locked.
+    const locked = (finRow?.finalized ?? false) || (ownRow?.finalized ?? false)
+    if (locked) {
+      const wd = (finRow?.payroll_withdrawal ?? 0) + (ownRow?.actual_withdrawal ?? 0)
+      const dep = (finRow?.payroll_deposit ?? 0) + (ownRow?.actual_deposit ?? 0)
+      setWithdrawalInput(wd ? String(round2(wd)) : '')
+      setDepositInput(dep ? String(round2(dep)) : '')
+    } else {
+      setWithdrawalInput('')
+      setDepositInput('')
+    }
 
     setLoading(false)
   }, [householdId, monthKey])
@@ -133,10 +141,31 @@ export default function AdminPayrollPage() {
   const jHasData = summary?.julie.hasData ?? false
   const oHasData = summary?.owner.hasData ?? false
 
-  const jW = jWithdrawal !== '' ? parseFloat(jWithdrawal) : (summary?.julie.estWithdrawal ?? 0)
-  const jD = jDeposit !== '' ? parseFloat(jDeposit) : (summary?.julie.estDeposit ?? 0)
-  const oW = oWithdrawal !== '' ? parseFloat(oWithdrawal) : (summary?.owner.estWithdrawal ?? 0)
-  const oD = oDeposit !== '' ? parseFloat(oDeposit) : (summary?.owner.estDeposit ?? 0)
+  // Estimated withdrawal/deposit per person — used both as the fallback when the
+  // field is blank, and as the ratio for splitting the ONE combined amount the
+  // user types back across the two people (so storage + Tax Center stay per-person).
+  const jEstW = summary?.julie.estWithdrawal ?? 0
+  const oEstW = summary?.owner.estWithdrawal ?? 0
+  const jEstD = summary?.julie.estDeposit ?? 0
+  const oEstD = summary?.owner.estDeposit ?? 0
+  const estTotalW = jEstW + oEstW
+  const estTotalD = jEstD + oEstD
+
+  // Combined inputs (blank → combined estimate).
+  const totalWithdrawal = withdrawalInput !== '' ? round2(parseFloat(withdrawalInput) || 0) : round2(estTotalW)
+  const totalNet = depositInput !== '' ? round2(parseFloat(depositInput) || 0) : round2(estTotalD)
+
+  // Split the combined figures back to each person by their estimated share.
+  // If only one person has data, they get all of it; if neither, shares are 0.
+  // Julie's share of each total; the owner gets the remainder (avoids rounding drift).
+  // When only the owner has data, Julie's share is 0 so the owner gets all of it.
+  const jShareW = estTotalW > 0 ? jEstW / estTotalW : (jHasData ? 1 : 0)
+  const jShareD = estTotalD > 0 ? jEstD / estTotalD : (jHasData ? 1 : 0)
+
+  const jW = round2(totalWithdrawal * jShareW)
+  const oW = round2(totalWithdrawal - jW)
+  const jD = round2(totalNet * jShareD)
+  const oD = round2(totalNet - jD)
 
   const jExpenses =
     (financials?.total_mileage_expense ?? 0) + (financials?.sb_expenses_total ?? 0) + (financials?.total_flat_expense ?? 0)
@@ -146,13 +175,9 @@ export default function AdminPayrollPage() {
 
   const jReserve = jHasData ? taxReserveFor(financials?.gross_income ?? 0, jW, jExpenses, taxPct) : 0
   const oReserve = oHasData ? taxReserveFor(owner?.amount ?? 0, oW, oExpenses, taxPct) : 0
+  const totalReserve = round2(jReserve + oReserve)
 
-  const jToBank = jHasData ? jW + jReserve : 0
-  const oToBank = oHasData ? oW + oReserve : 0
-  const totalToBank = Math.round((jToBank + oToBank) * 100) / 100
-  const totalWithdrawal = Math.round(((jHasData ? jW : 0) + (oHasData ? oW : 0)) * 100) / 100
-  const totalReserve = Math.round((jReserve + oReserve) * 100) / 100
-  const totalNet = Math.round(((jHasData ? jD : 0) + (oHasData ? oD : 0)) * 100) / 100
+  const totalToBank = round2(totalWithdrawal + totalReserve)
 
   const isFinalized = summary?.finalized ?? false
   const anyData = jHasData || oHasData
@@ -234,8 +259,8 @@ export default function AdminPayrollPage() {
         <div className="px-4 pt-4 space-y-4">
 
           <p className="text-xs text-gray-500 leading-relaxed">
-            Run payroll for both people in one place. Enter each person’s actual withdrawal and net pay;
-            the tax reserve and the total to move to your bank are calculated. Leave a person blank to use
+            Run payroll for the whole household in one place. Enter the actual total withdrawal and total
+            net pay; the tax reserve and the amount to move to your bank are calculated. Leave blank to use
             the estimate.
           </p>
 
@@ -252,36 +277,52 @@ export default function AdminPayrollPage() {
             <p className="text-xs text-gray-400 mt-1">
               Withdrawal {fmt(totalWithdrawal)} + tax reserve {fmt(totalReserve)}
             </p>
-            <p className="text-[11px] text-gray-400 mt-0.5">Combined net pay out: {fmt(totalNet)}</p>
           </div>
 
-          {/* Julie */}
-          <PersonCard
-            label="Julie (cleans)"
-            hasData={jHasData}
-            emptyHint="No cleans recorded this month."
-            estWithdrawal={summary?.julie.estWithdrawal ?? 0}
-            estDeposit={summary?.julie.estDeposit ?? 0}
-            withdrawal={jWithdrawal} setWithdrawal={setJWithdrawal}
-            deposit={jDeposit} setDeposit={setJDeposit}
-            reserve={jReserve} toBank={jToBank}
-            disabled={isFinalized}
-            fmt={fmt}
-          />
+          {/* Single combined input */}
+          <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Actuals (whole household)</p>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Actual total payroll withdrawal</label>
+                <input
+                  type="number" inputMode="decimal" disabled={isFinalized}
+                  placeholder={`Estimated: ${fmt(estTotalW)}`}
+                  value={withdrawalInput} onChange={e => setWithdrawalInput(e.target.value)}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#2C5F8A]/30 disabled:bg-gray-50 disabled:text-gray-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Actual total net pay (deposit)</label>
+                <input
+                  type="number" inputMode="decimal" disabled={isFinalized}
+                  placeholder={`Estimated: ${fmt(estTotalD)}`}
+                  value={depositInput} onChange={e => setDepositInput(e.target.value)}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#2C5F8A]/30 disabled:bg-gray-50 disabled:text-gray-500"
+                />
+              </div>
+            </div>
+          </div>
 
-          {/* You / owner */}
-          <PersonCard
-            label="You (owner income)"
-            hasData={oHasData}
-            emptyHint="No extra income entered this month. Add it on the Owner+ tab."
-            estWithdrawal={summary?.owner.estWithdrawal ?? 0}
-            estDeposit={summary?.owner.estDeposit ?? 0}
-            withdrawal={oWithdrawal} setWithdrawal={setOWithdrawal}
-            deposit={oDeposit} setDeposit={setODeposit}
-            reserve={oReserve} toBank={oToBank}
-            disabled={isFinalized}
-            fmt={fmt}
-          />
+          {/* Per-person breakdown (read-only, for the record + Tax Center) */}
+          <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Breakdown by person</p>
+            <div className="space-y-3 text-sm">
+              {jHasData && (
+                <PersonRow label="Julie (cleans)" withdrawal={jW} netPay={jD} reserve={jReserve} fmt={fmt} />
+              )}
+              {oHasData && (
+                <PersonRow label="You (owner income)" withdrawal={oW} netPay={oD} reserve={oReserve} fmt={fmt} />
+              )}
+              {!jHasData && !oHasData && (
+                <p className="text-xs text-gray-400">No income recorded this month — nothing to run.</p>
+              )}
+            </div>
+            <p className="text-[11px] text-gray-400 mt-3">
+              The total you enter above is split between people by their estimated share, so the Tax Center
+              still shows each side.
+            </p>
+          </div>
 
           {/* Combined summary */}
           <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
@@ -335,61 +376,34 @@ export default function AdminPayrollPage() {
   )
 }
 
-// ── Person card ──────────────────────────────────────────────────────────────
+// ── Per-person read-only row ─────────────────────────────────────────────────
 
-function PersonCard({
-  label, hasData, emptyHint, estWithdrawal, estDeposit,
-  withdrawal, setWithdrawal, deposit, setDeposit, reserve, toBank, disabled, fmt,
+function PersonRow({
+  label, withdrawal, netPay, reserve, fmt,
 }: {
   label: string
-  hasData: boolean
-  emptyHint: string
-  estWithdrawal: number
-  estDeposit: number
-  withdrawal: string
-  setWithdrawal: (v: string) => void
-  deposit: string
-  setDeposit: (v: string) => void
+  withdrawal: number
+  netPay: number
   reserve: number
-  toBank: number
-  disabled: boolean
   fmt: (n: number | null | undefined) => string
 }) {
   return (
-    <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
-      <div className="flex items-center justify-between mb-3">
-        <p className="text-sm font-bold text-gray-800">{label}</p>
-        {hasData && <span className="text-xs text-amber-600 font-medium">{fmt(toBank)} to bank</span>}
-      </div>
-
-      {!hasData ? (
-        <p className="text-xs text-gray-400">{emptyHint}</p>
-      ) : (
-        <div className="space-y-3">
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Actual total withdrawal</label>
-            <input
-              type="number" inputMode="decimal" disabled={disabled}
-              placeholder={`Estimated: ${fmt(estWithdrawal)}`}
-              value={withdrawal} onChange={e => setWithdrawal(e.target.value)}
-              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#2C5F8A]/30 disabled:bg-gray-50 disabled:text-gray-500"
-            />
-          </div>
-          <div>
-            <label className="block text-xs text-gray-500 mb-1">Actual net pay (deposit)</label>
-            <input
-              type="number" inputMode="decimal" disabled={disabled}
-              placeholder={`Estimated: ${fmt(estDeposit)}`}
-              value={deposit} onChange={e => setDeposit(e.target.value)}
-              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#2C5F8A]/30 disabled:bg-gray-50 disabled:text-gray-500"
-            />
-          </div>
-          <div className="flex justify-between text-sm pt-1 border-t border-gray-100">
-            <span className="text-gray-500">Tax reserve (calc)</span>
-            <span className="font-medium">{fmt(reserve)}</span>
-          </div>
+    <div className="rounded-xl bg-gray-50 p-3">
+      <p className="text-sm font-semibold text-gray-700 mb-1.5">{label}</p>
+      <div className="grid grid-cols-3 gap-2 text-xs">
+        <div>
+          <p className="text-gray-400">Withdrawal</p>
+          <p className="font-medium text-gray-700">{fmt(withdrawal)}</p>
         </div>
-      )}
+        <div>
+          <p className="text-gray-400">Net pay</p>
+          <p className="font-medium text-gray-700">{fmt(netPay)}</p>
+        </div>
+        <div>
+          <p className="text-gray-400">Tax reserve</p>
+          <p className="font-medium text-gray-700">{fmt(reserve)}</p>
+        </div>
+      </div>
     </div>
   )
 }
