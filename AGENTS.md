@@ -28,3 +28,16 @@ reintroduce either gap.
 Relevant code: `src/lib/schedule-generator.ts`, `src/components/AddCustomerSheet.tsx`,
 `src/app/(dashboard)/dashboard/customers/[id]/page.tsx`. Migration:
 `supabase/migrations/20260531_clean_dedup_and_constraints.sql`.
+
+# Home screen is the entry point (2026-07-01)
+
+`/dashboard` redirects to `/dashboard/home` — the operator-facing landing built for
+Julie's daily use, **not** the admin dashboard. Home surfaces three things:
+today's cleans (with one-tap Arrive/Mark Done/Log Payment), **missed cleans**
+(`status = 'scheduled'` AND `scheduled_date < today` — cleans that were never closed
+out), and payments due (`status IN ('done','payment_pending')`). All resolve actions
+reuse `CleanEventSheet`; Home adds no new mutation logic and no schema. Code:
+`src/app/(dashboard)/dashboard/home/page.tsx`.
+
+The **admin dashboard** (`/dashboard/admin`, reached via Settings) is the owner-only
+financial view (YTD, compliance, month-end close) — keep it separate from Home.
