@@ -1,5 +1,7 @@
 import Image from 'next/image'
 import Link from 'next/link'
+import { redirect } from 'next/navigation'
+import { createServerSupabaseClient } from '@/lib/supabase-server'
 
 const jsonLd = {
   '@context': 'https://schema.org',
@@ -29,7 +31,13 @@ const jsonLd = {
   image: 'https://spokane-clean.com/photos/real/clean_move-out.png',
 }
 
-export default function HomePage() {
+export default async function HomePage() {
+  // Logged-in operators (Julie) should land in the app, not the marketing site —
+  // this makes a home-screen icon that points at the site root open the dashboard Home.
+  const supabase = await createServerSupabaseClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (user) redirect('/dashboard/home')
+
   return (
     <>
       <script
