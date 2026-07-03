@@ -41,3 +41,28 @@ reuse `CleanEventSheet`; Home adds no new mutation logic and no schema. Code:
 
 The **admin dashboard** (`/dashboard/admin`, reached via Settings) is the owner-only
 financial view (YTD, compliance, month-end close) — keep it separate from Home.
+
+# Admin is organized by person (2026-07-02)
+
+The admin financial views are framed around **each person's own money**, not a
+generic monthly/yearly split. Tabs (`src/components/AdminTabs.tsx`): **Julie ·
+Daniel · Payroll · Yearly · Taxes**. Routes are kept stable and do **not** match the
+labels — don't "fix" this:
+
+- **Julie** → `/dashboard/admin/financials` — her cleaning P&L by month; hero is her
+  take-home (`payroll_deposit`) + YTD. Absorbed the old "Monthly" tab.
+- **Daniel** → `/dashboard/admin/owner` — owner extra income (`clean_owner_income`);
+  leads with "net that stays with you" (`computeOwnerIncome().netToYou`) this month + YTD.
+- **Payroll** → `/dashboard/admin/payroll` — reconcile the month: **one combined
+  withdrawal** box + **net pay entered per person** (Julie / Daniel). Withdrawal is
+  split by estimated share for each person's tax reserve; net pay feeds each person's tab.
+- **Yearly** (`/dashboard/admin`) = household overview + compliance checklist. **Taxes**
+  = tax summary by year.
+
+Money is written **only** to `clean_*` tables (`clean_monthly_financials` for Julie,
+`clean_owner_income` for Daniel). **Nothing is synced to Simple Budgets** — the app
+only reads SB expense/budget rows. The `sb_adjustment_*` columns on
+`clean_monthly_financials` are placeholders for a planned (unbuilt) Julie→SB sync.
+
+Selected month/year is sticky across tabs via `src/lib/use-admin-period.ts`
+(localStorage-backed `useStickyMonthKey` / `useStickyYear`).
