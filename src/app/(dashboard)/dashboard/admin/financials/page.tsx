@@ -50,6 +50,9 @@ export default function AdminFinancialsPage() {
   const [financials, setFinancials] = useState<CleanMonthlyFinancials | null>(null)
   const [settings, setSettings] = useState<CleanBusinessSettings | null>(null)
   const [eventSummary, setEventSummary] = useState<EventSummary | null>(null)
+  const [ytdTakeHome, setYtdTakeHome] = useState(0)
+  const [ytdNet, setYtdNet] = useState(0)
+  const [ytdMonths, setYtdMonths] = useState(0)
   const [loading, setLoading] = useState(true)
 
   // Load household
@@ -87,6 +90,19 @@ export default function AdminFinancialsPage() {
     // Load business settings
     const s = await fetchBusinessSettings(supabase, householdId)
     setSettings(s)
+
+    // Year-to-date roll-up of Julie's take-home (net pay) for the selected year
+    const year = monthKey.slice(0, 4)
+    const { data: yearRows } = await supabase
+      .from('clean_monthly_financials')
+      .select('payroll_deposit, net_to_household, month_key')
+      .eq('household_id', householdId)
+      .gte('month_key', `${year}-01`)
+      .lte('month_key', `${year}-12`)
+    const rows = (yearRows ?? []) as Array<{ payroll_deposit: number | null; net_to_household: number | null }>
+    setYtdTakeHome(rows.reduce((sum, r) => sum + (r.payroll_deposit ?? 0), 0))
+    setYtdNet(rows.reduce((sum, r) => sum + (r.net_to_household ?? 0), 0))
+    setYtdMonths(rows.length)
 
     // Load event breakdown for the month
     const monthStart = `${monthKey}-01`
@@ -163,7 +179,7 @@ export default function AdminFinancialsPage() {
           Dashboard
         </Link>
         <div className="flex items-center justify-between">
-          <h1 className="text-lg font-bold" style={{ color: '#2C5F8A' }}>Monthly Financials</h1>
+          <h1 className="text-lg font-bold" style={{ color: '#2C5F8A' }}>Julie</h1>
           <div className="flex items-center gap-2">
             {isFinalized && (
               <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700">
@@ -178,7 +194,7 @@ export default function AdminFinancialsPage() {
           </div>
         </div>
 
-        <AdminTabs active="monthly" />
+        <AdminTabs active="julie" />
 
         {/* Month nav */}
         <div className="flex items-center justify-between mt-3">
@@ -209,16 +225,31 @@ export default function AdminFinancialsPage() {
       ) : (
         <div className="px-4 pt-4 space-y-4">
 
-          {/* Net to household — hero card */}
+          {/* Julie's take-home — hero card */}
           <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 text-center">
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-1">
-              {isFinalized ? 'Final Net' : 'Pacing Net'}
+              Julie&apos;s Take-Home · {isFinalized ? 'Final' : 'Pacing'}
             </p>
-            <p className="text-3xl font-bold" style={{ color: '#2C5F8A' }}>{fmt(pacing)}</p>
-            <div className="mt-2 flex items-center justify-center gap-2">
-              <span className="text-xs text-gray-400">Target: {fmt(target)}</span>
+            <p className="text-3xl font-bold" style={{ color: '#2C5F8A' }}>{fmt(financials.payroll_deposit)}</p>
+            <div className="mt-3 pt-3 border-t border-gray-100 flex items-center justify-center gap-2">
+              <span className="text-xs text-gray-400">YTD {monthKey.slice(0, 4)}:</span>
+              <span className="text-sm font-bold text-gray-700">{fmt(ytdTakeHome)}</span>
+              <span className="text-xs text-gray-400">· {ytdMonths} mo</span>
+            </div>
+          </div>
+
+          {/* Net to household + budget target */}
+          <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-gray-500">Net to household</span>
+              <span className="text-base font-bold text-gray-800">{fmt(pacing)}</span>
+            </div>
+            <div className="mt-1 flex items-center justify-between">
+              <span className="text-xs text-gray-400">
+                Target {fmt(target)} · YTD {fmt(ytdNet)}
+              </span>
               <span className={`text-xs font-semibold ${vsTarget >= 0 ? 'text-green-600' : 'text-amber-600'}`}>
-                {vsTarget >= 0 ? '+' : ''}{fmt(vsTarget)}
+                {vsTarget >= 0 ? '+' : ''}{fmt(vsTarget)} vs target
               </span>
             </div>
           </div>

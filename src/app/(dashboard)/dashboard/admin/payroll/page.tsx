@@ -60,9 +60,11 @@ export default function AdminPayrollPage() {
   const [ownerTableMissing, setOwnerTableMissing] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
 
-  // Editable inputs — ONE combined withdrawal + ONE combined net pay (blank = estimate)
+  // Editable inputs — ONE combined withdrawal (one bank move) + per-person net pay
+  // (what each person actually took home). Blank = use that field's estimate.
   const [withdrawalInput, setWithdrawalInput] = useState('')
-  const [depositInput, setDepositInput] = useState('')
+  const [julieNetInput, setJulieNetInput] = useState('')
+  const [danielNetInput, setDanielNetInput] = useState('')
 
   function showToast(msg: string) {
     setToast(msg)
@@ -112,16 +114,17 @@ export default function AdminPayrollPage() {
     setSummary(sum)
     setOwnerTableMissing(ownErr?.code === '42P01')
 
-    // Prefill the two combined fields from saved actuals when locked.
+    // Prefill from saved actuals when locked: combined withdrawal + each person's net pay.
     const locked = (finRow?.finalized ?? false) || (ownRow?.finalized ?? false)
     if (locked) {
       const wd = (finRow?.payroll_withdrawal ?? 0) + (ownRow?.actual_withdrawal ?? 0)
-      const dep = (finRow?.payroll_deposit ?? 0) + (ownRow?.actual_deposit ?? 0)
       setWithdrawalInput(wd ? String(round2(wd)) : '')
-      setDepositInput(dep ? String(round2(dep)) : '')
+      setJulieNetInput(finRow?.payroll_deposit ? String(round2(finRow.payroll_deposit)) : '')
+      setDanielNetInput(ownRow?.actual_deposit ? String(round2(ownRow.actual_deposit)) : '')
     } else {
       setWithdrawalInput('')
-      setDepositInput('')
+      setJulieNetInput('')
+      setDanielNetInput('')
     }
 
     setLoading(false)
@@ -146,23 +149,19 @@ export default function AdminPayrollPage() {
   const jEstD = summary?.julie.estDeposit ?? 0
   const oEstD = summary?.owner.estDeposit ?? 0
   const estTotalW = jEstW + oEstW
-  const estTotalD = jEstD + oEstD
 
-  // Combined inputs (blank → combined estimate).
+  // Combined withdrawal (blank → combined estimate) — one bank move, split back to
+  // each person by their estimated share for their tax-reserve calc.
   const totalWithdrawal = withdrawalInput !== '' ? round2(parseFloat(withdrawalInput) || 0) : round2(estTotalW)
-  const totalNet = depositInput !== '' ? round2(parseFloat(depositInput) || 0) : round2(estTotalD)
-
-  // Split the combined figures back to each person by their estimated share.
-  // If only one person has data, they get all of it; if neither, shares are 0.
-  // Julie's share of each total; the owner gets the remainder (avoids rounding drift).
-  // When only the owner has data, Julie's share is 0 so the owner gets all of it.
   const jShareW = estTotalW > 0 ? jEstW / estTotalW : (jHasData ? 1 : 0)
-  const jShareD = estTotalD > 0 ? jEstD / estTotalD : (jHasData ? 1 : 0)
-
   const jW = round2(totalWithdrawal * jShareW)
   const oW = round2(totalWithdrawal - jW)
-  const jD = round2(totalNet * jShareD)
-  const oD = round2(totalNet - jD)
+
+  // Net pay entered per person (blank → that person's estimate). This is what each
+  // actually took home, and it feeds their own tab.
+  const jD = julieNetInput !== '' ? round2(parseFloat(julieNetInput) || 0) : round2(jEstD)
+  const oD = danielNetInput !== '' ? round2(parseFloat(danielNetInput) || 0) : round2(oEstD)
+  const totalNet = round2(jD + oD)
 
   const jExpenses =
     (financials?.total_mileage_expense ?? 0) + (financials?.sb_expenses_total ?? 0) + (financials?.total_flat_expense ?? 0)
@@ -258,9 +257,9 @@ export default function AdminPayrollPage() {
         <div className="px-4 pt-4 space-y-4">
 
           <p className="text-xs text-gray-500 leading-relaxed">
-            Run payroll for the whole household in one place. Enter the actual total withdrawal and total
-            net pay; the tax reserve and the amount to move to your bank are calculated. Leave blank to use
-            the estimate.
+            Run payroll for the whole household in one place. Enter the one total withdrawal plus each
+            person&apos;s actual net pay; the tax reserve and the amount to move to your bank are calculated,
+            and each person&apos;s net pay flows to their own tab. Leave a field blank to use its estimate.
           </p>
 
           {ownerTableMissing && (
@@ -278,9 +277,9 @@ export default function AdminPayrollPage() {
             </p>
           </div>
 
-          {/* Single combined input */}
+          {/* Actuals input: one combined withdrawal + net pay per person */}
           <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Actuals (whole household)</p>
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-3">Enter actuals</p>
             <div className="space-y-3">
               <div>
                 <label className="block text-xs text-gray-500 mb-1">Actual total payroll withdrawal</label>
@@ -290,16 +289,32 @@ export default function AdminPayrollPage() {
                   value={withdrawalInput} onChange={e => setWithdrawalInput(e.target.value)}
                   className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#2C5F8A]/30 disabled:bg-gray-50 disabled:text-gray-500"
                 />
+                <p className="text-[11px] text-gray-400 mt-1">One combined amount — the single transfer out of the account.</p>
               </div>
-              <div>
-                <label className="block text-xs text-gray-500 mb-1">Actual total net pay (deposit)</label>
-                <input
-                  type="number" inputMode="decimal" disabled={isFinalized}
-                  placeholder={`Estimated: ${fmt(estTotalD)}`}
-                  value={depositInput} onChange={e => setDepositInput(e.target.value)}
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#2C5F8A]/30 disabled:bg-gray-50 disabled:text-gray-500"
-                />
-              </div>
+
+              {jHasData && (
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Julie&apos;s actual net pay</label>
+                  <input
+                    type="number" inputMode="decimal" disabled={isFinalized}
+                    placeholder={`Estimated: ${fmt(jEstD)}`}
+                    value={julieNetInput} onChange={e => setJulieNetInput(e.target.value)}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#2C5F8A]/30 disabled:bg-gray-50 disabled:text-gray-500"
+                  />
+                </div>
+              )}
+
+              {oHasData && (
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Daniel&apos;s actual net pay</label>
+                  <input
+                    type="number" inputMode="decimal" disabled={isFinalized}
+                    placeholder={`Estimated: ${fmt(oEstD)}`}
+                    value={danielNetInput} onChange={e => setDanielNetInput(e.target.value)}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#2C5F8A]/30 disabled:bg-gray-50 disabled:text-gray-500"
+                  />
+                </div>
+              )}
             </div>
           </div>
 
@@ -311,15 +326,15 @@ export default function AdminPayrollPage() {
                 <PersonRow label="Julie (cleans)" withdrawal={jW} netPay={jD} reserve={jReserve} fmt={fmt} />
               )}
               {oHasData && (
-                <PersonRow label="You (owner income)" withdrawal={oW} netPay={oD} reserve={oReserve} fmt={fmt} />
+                <PersonRow label="Daniel (owner income)" withdrawal={oW} netPay={oD} reserve={oReserve} fmt={fmt} />
               )}
               {!jHasData && !oHasData && (
                 <p className="text-xs text-gray-400">No income recorded this month — nothing to run.</p>
               )}
             </div>
             <p className="text-[11px] text-gray-400 mt-3">
-              The total you enter above is split between people by their estimated share, so the Tax Center
-              still shows each side.
+              Net pay is what each person entered above. The combined withdrawal is split by estimated share
+              so each person&apos;s tax reserve — and their own tab — stays accurate.
             </p>
           </div>
 

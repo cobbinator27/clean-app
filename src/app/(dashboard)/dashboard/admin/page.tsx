@@ -384,8 +384,8 @@ export default function AdminDashboardPage() {
           >
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-semibold text-gray-900">Monthly Financials →</p>
-                <p className="text-xs text-gray-400 mt-0.5">Per-month pacing, payroll, and month-end close</p>
+                <p className="text-sm font-semibold text-gray-900">Julie&apos;s month →</p>
+                <p className="text-xs text-gray-400 mt-0.5">Per-month pacing, take-home, and month-end close</p>
               </div>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5 text-gray-300">
                 <polyline points="9 18 15 12 9 6" />

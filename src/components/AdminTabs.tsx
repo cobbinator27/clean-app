@@ -3,16 +3,25 @@
 import Link from 'next/link'
 
 // Shared admin navigation tabs, shown on every admin screen so you can jump
-// directly between Yearly / Monthly / Payroll / Owner+ / Taxes without bouncing
-// back to the dashboard first. Pass the current tab to highlight it.
+// directly between the per-person, payroll, yearly, and tax views without
+// bouncing back to the dashboard first. Pass the current tab to highlight it.
+//
+// Julie  → each person's own money (her cleaning business, by month + YTD)
+// Daniel → the owner's own money (extra income, by month + YTD)
+// Payroll→ reconcile the month's actuals for both, which feed the two tabs above
+// Yearly → household year overview + compliance checklist
+// Taxes  → tax summary by year
+//
+// Routes are kept stable: Julie lives on the old "financials" route and Daniel
+// on the old "owner" route, so existing links/bookmarks don't break.
 
-export type AdminTab = 'yearly' | 'monthly' | 'payroll' | 'owner' | 'taxes'
+export type AdminTab = 'julie' | 'daniel' | 'payroll' | 'yearly' | 'taxes'
 
 const TABS: { key: AdminTab; label: string; href: string }[] = [
-  { key: 'yearly', label: 'Yearly', href: '/dashboard/admin' },
-  { key: 'monthly', label: 'Monthly', href: '/dashboard/admin/financials' },
+  { key: 'julie', label: 'Julie', href: '/dashboard/admin/financials' },
+  { key: 'daniel', label: 'Daniel', href: '/dashboard/admin/owner' },
   { key: 'payroll', label: 'Payroll', href: '/dashboard/admin/payroll' },
-  { key: 'owner', label: 'Owner +', href: '/dashboard/admin/owner' },
+  { key: 'yearly', label: 'Yearly', href: '/dashboard/admin' },
   { key: 'taxes', label: 'Taxes', href: '/dashboard/admin/taxes' },
 ]
 

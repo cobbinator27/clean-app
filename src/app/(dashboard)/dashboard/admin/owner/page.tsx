@@ -48,6 +48,9 @@ export default function AdminOwnerIncomePage() {
   const [saving, setSaving] = useState(false)
   const [tableMissing, setTableMissing] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
+  const [ytdNetToYou, setYtdNetToYou] = useState(0)
+  const [ytdReserve, setYtdReserve] = useState(0)
+  const [ytdMonths, setYtdMonths] = useState(0)
 
   function showToast(msg: string) {
     setToast(msg)
@@ -95,6 +98,29 @@ export default function AdminOwnerIncomePage() {
 
     const row = (owner ?? null) as CleanOwnerIncome | null
 
+    // Year-to-date roll-up of Daniel's income (net that stays with you) for the
+    // selected year. netToYou isn't stored, so recompute it per saved month from
+    // that month's ratios — consistent with how the live figure is derived.
+    const year = monthKey.slice(0, 4)
+    let ytdNet = 0, ytdRes = 0, ytdMo = 0
+    if (ownerErr?.code !== '42P01') {
+      const [{ data: ownerYear }, { data: finYear }] = await Promise.all([
+        supabase.from('clean_owner_income').select('*')
+          .eq('household_id', householdId).gte('month_key', `${year}-01`).lte('month_key', `${year}-12`),
+        supabase.from('clean_monthly_financials').select('*')
+          .eq('household_id', householdId).gte('month_key', `${year}-01`).lte('month_key', `${year}-12`),
+      ])
+      const finByMonth = new Map(
+        ((finYear ?? []) as CleanMonthlyFinancials[]).map(f => [f.month_key, f])
+      )
+      for (const o of (ownerYear ?? []) as CleanOwnerIncome[]) {
+        const bb = computeOwnerIncome(o.amount ?? 0, finByMonth.get(o.month_key) ?? null, s, o.mirror_expenses ?? false)
+        ytdNet += bb.netToYou
+        ytdRes += bb.taxReserve
+        if ((o.amount ?? 0) > 0) ytdMo++
+      }
+    }
+
     // Commit all state once reads are done.
     setSettings(s)
     setFinancials(fin as CleanMonthlyFinancials | null)
@@ -102,6 +128,9 @@ export default function AdminOwnerIncomePage() {
     setAmountInput(row ? String(row.amount) : '')
     setMirrorExpenses(row?.mirror_expenses ?? true)
     setNote(row?.note ?? '')
+    setYtdNetToYou(ytdNet)
+    setYtdReserve(ytdRes)
+    setYtdMonths(ytdMo)
     // Table not created yet — calculator still works, persistence doesn't.
     setTableMissing(ownerErr?.code === '42P01')
     setLoading(false)
@@ -109,7 +138,7 @@ export default function AdminOwnerIncomePage() {
 
   useEffect(() => {
     // Load-on-mount: loadData only calls setState after awaiting its reads, so the
-    // cascading-render concern doesn't apply. Same pattern as the Monthly view.
+    // cascading-render concern doesn't apply. Same pattern as the Julie view.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     loadData()
   }, [loadData])
@@ -175,7 +204,7 @@ export default function AdminOwnerIncomePage() {
           Dashboard
         </Link>
         <div className="flex items-center justify-between">
-          <h1 className="text-lg font-bold" style={{ color: '#2C5F8A' }}>Owner / Extra Income</h1>
+          <h1 className="text-lg font-bold" style={{ color: '#2C5F8A' }}>Daniel</h1>
           <div className="flex items-center gap-2">
             {isFinalized ? (
               <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-green-100 text-green-700">
@@ -192,7 +221,7 @@ export default function AdminOwnerIncomePage() {
           </div>
         </div>
 
-        <AdminTabs active="owner" />
+        <AdminTabs active="daniel" />
 
         {/* Month nav */}
         <div className="flex items-center justify-between mt-3">
@@ -231,10 +260,28 @@ export default function AdminOwnerIncomePage() {
 
           {/* Explainer */}
           <p className="text-xs text-gray-500 leading-relaxed">
-            Extra income tracked <span className="font-semibold">separately</span> from your budget-wired
-            financials. It splits the amount using {formatMonthLabel(monthKey)}&apos;s real ratios and shows
-            what to move for taxes. Nothing here touches the Monthly view or your budget app.
+            Your extra income, tracked <span className="font-semibold">separately</span> from Julie&apos;s
+            budget-wired financials. It splits the amount using {formatMonthLabel(monthKey)}&apos;s real ratios
+            and shows what to move for taxes. Nothing here touches the Julie tab or your budget app.
           </p>
+
+          {/* Your income — this month + YTD */}
+          <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-gray-500">Net that stays with you</span>
+              <span className="text-base font-bold text-green-600">{fmt(b.netToYou)}</span>
+            </div>
+            <div className="mt-1 pt-2 border-t border-gray-100 flex items-center justify-between">
+              <span className="text-xs text-gray-400">
+                YTD {monthKey.slice(0, 4)} · {ytdMonths} mo
+              </span>
+              <span className="text-sm font-bold text-gray-700">{fmt(ytdNetToYou)}</span>
+            </div>
+            <div className="mt-1 flex items-center justify-between">
+              <span className="text-xs text-gray-400">YTD tax reserved</span>
+              <span className="text-xs font-medium text-amber-600">{fmt(ytdReserve)}</span>
+            </div>
+          </div>
 
           {/* Amount input */}
           <div className="bg-white rounded-2xl p-4 shadow-sm border border-gray-100">
@@ -277,7 +324,7 @@ export default function AdminOwnerIncomePage() {
           {!b.hasRatio && (
             <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-sm text-amber-800">
               No revenue recorded for {formatMonthLabel(monthKey)} yet, so there&apos;s no ratio to apply.
-              Add Julie&apos;s cleans for this month on the Monthly view first, then come back.
+              Add Julie&apos;s cleans for this month on the Julie tab first, then come back.
             </div>
           )}
 
