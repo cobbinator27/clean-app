@@ -11,6 +11,7 @@ import type {
 import { fetchBusinessSettings } from '@/lib/pacing'
 import { buildTaxSummary, type TaxSummary } from '@/lib/tax-summary'
 import AdminTabs from '@/components/AdminTabs'
+import { useStickyYear } from '@/lib/use-admin-period'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -23,9 +24,8 @@ function fmt(n: number | null | undefined): string {
 
 export default function AdminTaxesPage() {
   const supabase = createClient()
-  const currentYear = new Date().getFullYear()
   const [householdId, setHouseholdId] = useState<string | null>(null)
-  const [year, setYear] = useState(currentYear)
+  const [year, setYear] = useStickyYear()
   const [summary, setSummary] = useState<TaxSummary | null>(null)
   const [loading, setLoading] = useState(true)
   const [ownerTableMissing, setOwnerTableMissing] = useState(false)

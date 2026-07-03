@@ -6,13 +6,9 @@ import { createClient } from '@/lib/supabase'
 import type { CleanBusinessSettings, CleanMonthlyFinancials } from '@/types/clean'
 import { recalculatePacing, fetchBusinessSettings } from '@/lib/pacing'
 import AdminTabs from '@/components/AdminTabs'
+import { useStickyMonthKey } from '@/lib/use-admin-period'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-
-function getCurrentMonthKey(): string {
-  const d = new Date()
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-}
 
 function formatMonthLabel(monthKey: string): string {
   const [y, m] = monthKey.split('-').map(Number)
@@ -50,7 +46,7 @@ interface EventSummary {
 export default function AdminFinancialsPage() {
   const supabase = createClient()
   const [householdId, setHouseholdId] = useState<string | null>(null)
-  const [monthKey, setMonthKey] = useState(getCurrentMonthKey())
+  const [monthKey, setMonthKey] = useStickyMonthKey()
   const [financials, setFinancials] = useState<CleanMonthlyFinancials | null>(null)
   const [settings, setSettings] = useState<CleanBusinessSettings | null>(null)
   const [eventSummary, setEventSummary] = useState<EventSummary | null>(null)

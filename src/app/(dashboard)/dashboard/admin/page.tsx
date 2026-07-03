@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase'
 import type { CleanComplianceItem, CleanMonthlyFinancials } from '@/types/clean'
 import { toLocalDateString, getWeekMonday, addDays } from '@/lib/date-utils'
 import AdminTabs from '@/components/AdminTabs'
+import { useStickyYear } from '@/lib/use-admin-period'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -76,7 +77,7 @@ export default function AdminDashboardPage() {
   const supabase = createClient()
   const currentYear = new Date().getFullYear()
   const [householdId, setHouseholdId] = useState<string | null>(null)
-  const [year, setYear] = useState(currentYear)
+  const [year, setYear] = useStickyYear()
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null)
   const [allMonthly, setAllMonthly] = useState<CleanMonthlyFinancials[]>([])
   const [allItems, setAllItems] = useState<CleanComplianceItem[]>([])
