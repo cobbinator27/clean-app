@@ -27,6 +27,16 @@ export const metadata: Metadata = {
   description:
     "Local, family-owned residential cleaning service in Spokane, WA. Flexible scheduling, safe products, and a cleaner you can trust. Get a free estimate today.",
   metadataBase: new URL("https://spokane-clean.com"),
+  // iOS reads these when the site is added to the home screen: run chrome-less
+  // and use the clean. logo instead of a page screenshot.
+  appleWebApp: {
+    capable: true,
+    title: "clean.",
+    statusBarStyle: "default",
+  },
+  icons: {
+    apple: "/photos/stock/clean._logo.png",
+  },
 };
 
 export default function RootLayout({

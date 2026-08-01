@@ -42,6 +42,31 @@ reuse `CleanEventSheet`; Home adds no new mutation logic and no schema. Code:
 The **admin dashboard** (`/dashboard/admin`, reached via Settings) is the owner-only
 financial view (YTD, compliance, month-end close) — keep it separate from Home.
 
+## Julie's real entry point is a pinned iOS icon (2026-08-01)
+
+She does not type the URL or use the nav to get in — she taps a **saved home-screen
+icon on her iPhone**. That icon opens whatever URL was captured when it was added, so
+in-app redirects alone could not make Home her landing screen: for a month she was
+landing on Schedule and never saw the missed-cleans list Home was built for.
+
+The entry point is therefore pinned in **four** places, all of which must keep
+pointing at `/dashboard/home`:
+
+- `src/app/manifest.ts` — `start_url: '/dashboard/home'`, `display: 'standalone'`.
+  This is what makes the icon itself open Home. Without a manifest, "Add to Home
+  Screen" bakes in the current URL forever.
+- `src/proxy.ts` — signed-in users hitting `/login` are redirected to Home (an old
+  pinned `/login` icon would otherwise be a dead end). The matcher **must** keep
+  excluding `manifest.webmanifest`, or the auth proxy 307s the manifest to `/login`
+  for signed-out requests and it never loads.
+- `src/app/(dashboard)/dashboard/page.tsx` — `/dashboard` → `/dashboard/home`.
+- `src/app/(public)/page.tsx` — logged-in visitors to the marketing root → Home.
+
+⚠️ **Changing `start_url` does not update an already-installed icon.** iOS reads the
+manifest only when the icon is added. Any future change to the operator landing route
+requires Julie to delete and re-add the icon from Safari — plan for that, don't assume
+a deploy is enough.
+
 # Admin is organized by person (2026-07-02)
 
 The admin financial views are framed around **each person's own money**, not a
